@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 export default function AuctionPage() {
+  const router = useRouter();
   const [activeItem, setActiveItem] = useState<any>(null);
   const [allItems, setAllItems] = useState<any[]>([]);
   const [user, setUser] = useState<any>(null);
@@ -20,6 +22,13 @@ export default function AuctionPage() {
       // 2. 현재 활성화된 경매 매칭
       const active = items.find(i => i.status === "active");
       setActiveItem(active || null);
+
+      // 3. 모든 경매 종료 시 피드로 이동
+      const allFinished = items.length > 0 && items.every(i => i.status === "finished");
+      if (allFinished) {
+        router.push("/feed");
+        return;
+      }
     }
 
     // 3. 내 최신 정보 및 낙찰 목록 동기화
