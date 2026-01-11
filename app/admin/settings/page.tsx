@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, LayoutDashboard, UserPlus, Trash2, RotateCcw, Sparkles } from "lucide-react";
+import { ChevronLeft, LayoutDashboard, UserPlus, Trash2, RotateCcw, Sparkles, Radio } from "lucide-react";
 
 export default function AdminSettings() {
   const router = useRouter();
@@ -26,50 +26,67 @@ export default function AdminSettings() {
     fetchSettings(); 
   }, []);
 
-  // 1. 피드 레코드 일괄 생성 (추가된 핵심 로직)
+  // [핵심 로직] 행사 단계 전환 및 유저 화면 강제 리다이렉션 제어
+  const changePhase = async (v: string) => {
+    const phaseNames: any = { 
+      auction: "옥션 진행", 
+      feed: "갤러리(피드) 오픈", 
+      report: "최종 리포트 발행" 
+    };
+
+    if (!confirm(`[${phaseNames[v]}] 단계로 전환하시겠습니까? 모든 유저의 화면이 즉시 리다이렉트됩니다.`)) return;
+
+    try {
+      // 1. 현재 페이즈 업데이트
+      await supabase.from("system_settings").upsert({ key: "current_phase", value: v });
+
+      // 2. 유저 페이지 감시용 플래그 동기화
+      // auction: 둘 다 false / feed: feed만 true / report: 둘 다 true
+      const isFeedOpen = (v === 'feed' || v === 'report') ? "true" : "false";
+      const isReportOpen = (v === 'report') ? "true" : "false";
+
+      await Promise.all([
+        supabase.from("system_settings").upsert({ key: "is_feed_open", value: isFeedOpen }),
+        supabase.from("system_settings").upsert({ key: "is_report_open", value: isReportOpen })
+      ]);
+
+      setPhase(v);
+      alert(`✅ 시스템이 [${phaseNames[v]}] 모드로 전환되었습니다.`);
+    } catch (err) {
+      console.error(err);
+      alert("단계 전환 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 피드 레코드 일괄 생성
   const generateFeedRecords = async () => {
     if (!confirm("모든 참가자의 사진 슬롯(1~4번)을 생성하시겠습니까? (이미 생성된 데이터는 유지됩니다)")) return;
-
     const records: any[] = [];
     users.forEach(user => {
-      // 각 유저당 4장의 사진 슬롯 생성
       for (let i = 1; i <= 4; i++) {
         records.push({
           user_id: user.id,
           photo_number: i,
-          order_prefix: "00", // 초기값
-          gender_code: user.gender || "F", // 유저 성별 정보 (없으면 F)
+          order_prefix: "00",
+          gender_code: user.gender || "F",
           likes: 0
         });
       }
     });
-
-    // upsert를 사용하여 중복 없이 신규 유저만 추가
     const { error } = await supabase
       .from("feed_items")
       .upsert(records, { onConflict: 'user_id, photo_number' });
-
-    if (!error) {
-      alert("피드 레코드가 성공적으로 생성/동기화되었습니다. 이제 대시보드에 사진 칸이 나타납니다.");
-    } else {
-      console.error(error);
-      alert("생성 중 오류 발생: " + error.message);
-    }
+    if (!error) alert("피드 레코드가 생성/동기화되었습니다.");
+    else alert("오류 발생: " + error.message);
   };
 
   const handleForceRename = async (user: any) => {
     const newSuffix = user.phone_suffix + "A";
-    const { error } = await supabase.from("users")
-      .update({ phone_suffix: newSuffix })
-      .eq("id", user.id);
-    
+    const { error } = await supabase.from("users").update({ phone_suffix: newSuffix }).eq("id", user.id);
     if (!error) {
-      const updatedUser = { ...user, phone_suffix: newSuffix, newSuffix: newSuffix };
-      setTargetUser(updatedUser);
+      setTargetUser({ ...user, phone_suffix: newSuffix, newSuffix: newSuffix });
       setShowDriveModal(true); 
       fetchSettings();
-    } else {
-      alert("변경 실패: 데이터베이스 오류");
     }
   };
 
@@ -77,30 +94,19 @@ export default function AdminSettings() {
     if (!user) return;
     const currentSuffix = user.phone_suffix.toString();
     const originalSuffix = currentSuffix.endsWith("A") ? currentSuffix.slice(0, -1) : currentSuffix;
-
-    const { error } = await supabase.from("users")
-      .update({ phone_suffix: originalSuffix })
-      .eq("id", user.id);
-    
+    const { error } = await supabase.from("users").update({ phone_suffix: originalSuffix }).eq("id", user.id);
     if (!error) {
       alert(`${user.real_name}님의 정보가 복구되었습니다.`);
       setShowDriveModal(false);
       setTargetUser(null);
       fetchSettings();
-    } else {
-      alert("복구 실패: 데이터베이스 오류");
     }
-  };
-
-  const changePhase = async (v: string) => {
-    if (!confirm(`${v.toUpperCase()} 단계로 전환하시겠습니까?`)) return;
-    await supabase.from("system_settings").upsert({ key: "current_phase", value: v });
-    setPhase(v);
   };
 
   const changeSession = async (v: string) => {
     await supabase.from("system_settings").upsert({ key: "current_session", value: v });
     setSession(v);
+    alert("회차가 저장되었습니다.");
   };
 
   const handleDeleteUser = async (user: any) => {
@@ -121,7 +127,37 @@ export default function AdminSettings() {
         </button>
       </header>
 
-      {/* 🚀 피드 초기화 버튼 섹션 (추가됨) */}
+      {/* 🚀 서비스 단계 컨트롤 (통합 제어판) */}
+      <section className="bg-[#1A1A1A] p-7 rounded-[2.5rem] text-white mb-6 shadow-2xl border-b-4 border-[#A52A2A]">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-[9px] font-sans font-black tracking-[0.4em] text-[#FFD700] uppercase italic">Service Phase Control</h3>
+          <div className="flex items-center gap-1.5 bg-red-500/20 px-2 py-1 rounded-full border border-red-500/30">
+             <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+             <span className="text-[8px] font-black uppercase text-red-400 font-sans">Live Sync Active</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {['auction', 'feed', 'report'].map(p => (
+            <button 
+              key={p} 
+              onClick={() => changePhase(p)} 
+              className={`py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all flex flex-col items-center gap-2 ${
+                phase === p 
+                ? 'bg-[#A52A2A] border-transparent scale-105 shadow-[0_0_20px_rgba(165,42,42,0.4)]' 
+                : 'border-white/10 opacity-30 hover:opacity-100'
+              }`}
+            >
+              {p}
+              {phase === p && <div className="w-1 h-1 bg-white rounded-full animate-bounce" />}
+            </button>
+          ))}
+        </div>
+        <p className="text-[9px] text-white/30 text-center mt-4 font-sans italic">
+          * 버튼 클릭 시 해당 단계로 모든 유저가 강제 리다이렉트됩니다.
+        </p>
+      </section>
+
+      {/* 피드 초기화 버튼 섹션 */}
       <section className="mb-8">
         <div className="bg-pink-50 border border-pink-100 p-8 rounded-[2.5rem] flex justify-between items-center shadow-sm">
           <div>
@@ -134,17 +170,6 @@ export default function AdminSettings() {
           >
             <Sparkles size={14} /> 레코드 일괄 생성
           </button>
-        </div>
-      </section>
-
-      <section className="bg-[#1A1A1A] p-7 rounded-[2.5rem] text-white mb-6 shadow-2xl border-b-4 border-[#A52A2A]">
-        <h3 className="text-[9px] font-sans font-black tracking-[0.4em] text-[#FFD700] uppercase mb-6 text-center italic">Service Phase Control</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {['auction', 'feed', 'report'].map(p => (
-            <button key={p} onClick={() => changePhase(p)} className={`py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${phase === p ? 'bg-[#A52A2A] border-transparent scale-105' : 'border-white/10 opacity-30'}`}>
-              {p}
-            </button>
-          ))}
         </div>
       </section>
 
@@ -165,7 +190,6 @@ export default function AdminSettings() {
             저장
           </button>
         </div>
-        <p className="text-[10px] text-gray-400 text-center mt-3">파일명 예시: <code className="bg-gray-100 px-2 py-1 rounded">{session}_홍길동_1234_남성_매력.jpg</code></p>
       </section>
 
       <section className="space-y-4">
@@ -173,7 +197,7 @@ export default function AdminSettings() {
         <div className="space-y-3">
           {users.map(user => (
             <div key={user.id} className="p-5 bg-white border border-[#EEEBDE] rounded-[2rem] flex justify-between items-center shadow-sm">
-              <div className="min-w-0 pr-4">
+              <div className="min-w-0 pr-4 font-sans">
                 <p className="font-bold text-sm truncate flex items-center gap-2">
                   {user.real_name} 
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${user.phone_suffix.endsWith("A") ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
@@ -200,20 +224,20 @@ export default function AdminSettings() {
           <div className="bg-white rounded-[3rem] p-10 w-full max-w-sm text-center shadow-2xl">
             <div className="w-20 h-20 bg-amber-50 text-amber-500 rounded-[2rem] flex items-center justify-center mx-auto mb-8 text-3xl">⚠️</div>
             <h3 className="text-2xl font-serif italic font-bold mb-3 tracking-tight">Drive Sync Required</h3>
-            <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+            <p className="text-sm text-gray-500 mb-8 leading-relaxed font-sans">
               데이터베이스 정보가 변경되었습니다.<br/>
               스태프님, <span className="text-[#A52A2A] font-bold underline">구글 드라이브 파일명</span>도<br/>
               즉시 수정이 필요합니다!
             </p>
-            <div className="bg-gray-50 p-6 rounded-[1.5rem] mb-6 text-left border border-gray-100">
+            <div className="bg-gray-50 p-6 rounded-[1.5rem] mb-6 text-left border border-gray-100 font-mono">
               <p className="text-[9px] text-gray-400 uppercase font-black mb-2">Expected Filename</p>
-              <code className="text-xs font-mono font-bold text-[#1A1A1A] break-all">
+              <code className="text-xs font-bold text-[#1A1A1A] break-all">
                 ..._{targetUser.real_name}_{targetUser.newSuffix}_...
               </code>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 font-sans">
               <button onClick={() => setShowDriveModal(false)} className="w-full py-5 bg-[#1A1A1A] text-white rounded-2xl font-black text-xs uppercase shadow-lg">확인 및 작업완료</button>
-              <button onClick={() => handleUndoRename(targetUser)} className="w-full py-3 text-[10px] text-red-500 font-bold uppercase hover:underline">앗, 잘못 눌렀어요! (실행 취소)</button>
+              <button onClick={() => handleUndoRename(targetUser)} className="w-full py-3 text-[10px] text-red-500 font-bold uppercase hover:underline">실행 취소</button>
             </div>
           </div>
         </div>

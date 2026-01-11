@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { Heart, Trophy, Users, TrendingUp } from "lucide-react";
+import { Heart, Trophy, Users, TrendingUp, FileText } from "lucide-react"; // FileText 아이콘 추가
 
 interface FeedItem {
   id: string;
@@ -26,9 +26,28 @@ export default function FeedDashboard() {
   const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_API_KEY;
   const FOLDER_ID = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID;
 
+  // [추가] 리포트 발행 함수: DB 상태를 true로 변경
+  const releaseReport = async () => {
+    const isConfirm = confirm(
+      "📢 모든 유저에게 리포트를 발행하시겠습니까?\n발행 즉시 모든 유저의 화면이 '로딩 중'으로 전환됩니다."
+    );
+    
+    if (!isConfirm) return;
+
+    const { error } = await supabase
+      .from("system_settings")
+      .update({ value: "true" })
+      .eq("key", "is_report_open");
+
+    if (error) {
+      alert("리포트 발행 중 오류가 발생했습니다: " + error.message);
+    } else {
+      alert("✅ 리포트 발행 성공! 유저들이 결과 페이지로 이동합니다.");
+    }
+  };
+
   const fetchFeedData = async (session: string) => {
     try {
-      // 1. Fetch all data in parallel
       const [usersRes, likesRes, driveRes] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("feed_likes").select("*"),
@@ -40,13 +59,11 @@ export default function FeedDashboard() {
       const likes = likesRes.data || [];
       const users = usersRes.data || [];
 
-      // 2. Count likes per user
       const likeCounts: Record<string, number> = {};
       likes.forEach(like => {
         likeCounts[like.target_user_id] = (likeCounts[like.target_user_id] || 0) + 1;
       });
 
-      // 3. Match files with users and add like counts (매칭된 사진만)
       const matchedItems: FeedItem[] = allFiles
         .filter((file: any) => file.name.startsWith(`${session}_`))
         .map((file: any) => {
@@ -95,7 +112,7 @@ export default function FeedDashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "feed_likes" }, () => fetchFeedData(currentSession))
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [currentSession]);
 
   if (isLoading) {
     return (
@@ -115,6 +132,14 @@ export default function FeedDashboard() {
           <h1 className="text-sm font-black uppercase tracking-[0.5em] text-white/90">Feed Popularity</h1>
         </div>
         <div className="flex gap-4">
+          {/* 리포트 발행 버튼 추가 */}
+          <button 
+            onClick={releaseReport}
+            className="px-5 py-2 bg-rose-600 hover:bg-rose-500 rounded-full text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-rose-400 shadow-[0_0_20px_rgba(225,29,72,0.3)]"
+          >
+            <FileText size={14} /> Release Report
+          </button>
+          
           <button onClick={() => router.push("/admin/dashboard/auction")} className="px-5 py-2 bg-white/5 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-[#A52A2A]/20 transition-all">Auction</button>
           <button onClick={() => router.push("/admin/settings")} className="px-5 py-2 bg-pink-600 rounded-full text-[10px] font-black uppercase tracking-widest transition-all">Settings</button>
         </div>
@@ -147,7 +172,7 @@ export default function FeedDashboard() {
 
       {/* Photo Ranking Grid */}
       <div className="flex-1 px-10 pb-10 overflow-hidden">
-        <div className="h-full bg-[#111] rounded-[3rem] p-8 border border-white/5 flex flex-col shadow-2xl">
+        <div className="h-full bg-[#111] rounded-[3rem] p-8 border border-white/5 flex flex-col shadow-2xl overflow-y-auto">
 
           <div className="flex justify-between items-end mb-8 px-2">
             <div>
@@ -159,61 +184,49 @@ export default function FeedDashboard() {
             <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest animate-pulse">Live</span>
           </div>
 
-          {/* Grid */}
-          <div className="flex-1 overflow-y-auto pr-2">
-            {feedItems.length === 0 ? (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-white/20 text-sm italic">No photos uploaded yet</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {feedItems.map((item, idx) => (
-                  <div
-                    key={item.id}
-                    className={`relative group rounded-2xl overflow-hidden border transition-all duration-500 ${
-                      idx === 0
-                        ? 'border-pink-500/50 shadow-[0_0_30px_rgba(236,72,153,0.2)] ring-2 ring-pink-500/20'
-                        : idx < 3
-                          ? 'border-pink-500/20'
-                          : 'border-white/5'
-                    }`}
-                  >
-                    {/* Rank Badge */}
-                    <div className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${
-                      idx === 0 ? 'bg-pink-500 text-white' :
-                      idx < 3 ? 'bg-black/80 text-pink-400 border border-pink-500/30' :
-                      'bg-black/60 text-white/60'
-                    }`}>
-                      {idx + 1}
-                    </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {feedItems.map((item, idx) => (
+              <div
+                key={item.id}
+                className={`relative group rounded-2xl overflow-hidden border transition-all duration-500 ${
+                  idx === 0
+                    ? 'border-pink-500/50 shadow-[0_0_30px_rgba(236,72,153,0.2)] ring-2 ring-pink-500/20'
+                    : idx < 3
+                      ? 'border-pink-500/20'
+                      : 'border-white/5'
+                }`}
+              >
+                <div className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${
+                  idx === 0 ? 'bg-pink-500 text-white' :
+                  idx < 3 ? 'bg-black/80 text-pink-400 border border-pink-500/30' :
+                  'bg-black/60 text-white/60'
+                }`}>
+                  {idx + 1}
+                </div>
 
-                    {/* Image */}
-                    <div className="aspect-square w-full bg-black/40">
-                      <img
-                        src={item.photo_url}
-                        alt={item.nickname}
-                        className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
-                        onError={(e) => { (e.target as any).src = "https://via.placeholder.com/400?text=No+Image"; }}
-                      />
-                    </div>
+                <div className="aspect-square w-full bg-black/40">
+                  <img
+                    src={item.photo_url}
+                    alt={item.nickname}
+                    className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+                    onError={(e) => { (e.target as any).src = "https://via.placeholder.com/400?text=No+Image"; }}
+                  />
+                </div>
 
-                    {/* Overlay Info */}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-bold text-white truncate">{item.nickname}</p>
-                          <p className="text-[9px] text-white/40 uppercase tracking-wider">{item.gender}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 bg-pink-500/90 px-3 py-1.5 rounded-full shrink-0 ml-2">
-                          <Heart size={12} fill="white" className="text-white" />
-                          <span className="text-xs font-black text-white">{item.like_count}</span>
-                        </div>
-                      </div>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-white truncate">{item.nickname}</p>
+                      <p className="text-[9px] text-white/40 uppercase tracking-wider">{item.gender}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-pink-500/90 px-3 py-1.5 rounded-full shrink-0 ml-2">
+                      <Heart size={12} fill="white" className="text-white" />
+                      <span className="text-xs font-black text-white">{item.like_count}</span>
                     </div>
                   </div>
-                ))}
+                </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
       </div>

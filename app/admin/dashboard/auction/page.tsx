@@ -3,13 +3,38 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { Settings, Activity, Trophy, History, Zap } from "lucide-react";
+import { Settings, Activity, Trophy, History, Zap, CheckCircle2 } from "lucide-react"; // CheckCircle2 추가
 
 export default function AuctionDashboard() {
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [bids, setBids] = useState<any[]>([]);
+
+  // [추가] 옥션 최종 종료 및 피드 오픈 함수
+  const finishAuctionAndOpenFeed = async () => {
+    const isConfirm = confirm(
+      "📢 모든 경매 세션을 종료하고 피드 투표를 시작하시겠습니까?\n유저들은 즉시 갤러리(피드) 화면으로 리다이렉트됩니다."
+    );
+    
+    if (!isConfirm) return;
+
+    // 1. 진행 중인 모든 아이템을 finished로 (안전장치)
+    await supabase.from("auction_items").update({ status: 'finished' }).eq('status', 'active');
+
+    // 2. 시스템 설정에서 피드 오픈 신호 발송
+    const { error } = await supabase
+      .from("system_settings")
+      .update({ value: "true" })
+      .eq("key", "is_feed_open");
+
+    if (error) {
+      alert("피드 오픈 중 오류 발생: " + error.message);
+    } else {
+      alert("✅ 옥션 종료! 유저들이 피드 페이지로 이동합니다.");
+      router.push("/admin/dashboard/feed"); // 어드민도 피드 대시보드로 이동
+    }
+  };
 
   const fetchLive = async () => {
     const [iRes, uRes, bRes] = await Promise.all([
@@ -50,6 +75,14 @@ export default function AuctionDashboard() {
           <h1 className="text-sm font-black uppercase tracking-[0.5em] text-white/90">Auction Command</h1>
         </div>
         <div className="flex gap-4">
+          {/* [추가] 옥션 전체 종료 및 피드 이동 버튼 */}
+          <button 
+            onClick={finishAuctionAndOpenFeed}
+            className="px-5 py-2 bg-amber-600 hover:bg-amber-500 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border border-amber-400/50 flex items-center gap-2 shadow-[0_0_20px_rgba(217,119,6,0.2)]"
+          >
+            <CheckCircle2 size={14} /> Auction Finish & Feed Open
+          </button>
+          
           <button onClick={() => router.push("/admin/dashboard/feed")} className="px-5 py-2 bg-white/5 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-pink-500/20 transition-all">Switch to Feed 📸</button>
           <button onClick={() => router.push("/admin/settings")} className="px-5 py-2 bg-[#A52A2A] rounded-full text-[10px] font-black uppercase tracking-widest transition-all">Settings ⚙️</button>
         </div>
@@ -64,19 +97,39 @@ export default function AuctionDashboard() {
                 <span className="text-[10px] font-black tracking-[0.4em] opacity-40 uppercase mb-4 block">Now Progressing</span>
                 <h2 className="text-5xl font-serif italic font-bold mb-6 tracking-tighter">{activeItem.title}</h2>
                 <p className="text-6xl font-black mb-10 tracking-tighter">{activeItem.current_bid.toLocaleString()} <span className="text-xl font-normal opacity-40">만</span></p>
-                <button onClick={async () => await supabase.from("auction_items").update({status:'finished'}).eq('id', activeItem.id)} className="w-full py-5 bg-white text-[#A52A2A] rounded-2xl font-black uppercase tracking-widest text-xs">경매 종료</button>
+                <button 
+                  onClick={async () => await supabase.from("auction_items").update({status:'finished'}).eq('id', activeItem.id)} 
+                  className="w-full py-5 bg-white text-[#A52A2A] rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-gray-100 transition-colors"
+                >
+                  현재 세션 종료
+                </button>
               </div>
             ) : (
-              <div className="opacity-20 italic text-xl">진행 중인 경매가 없습니다</div>
+              <div className="flex flex-col items-center justify-center gap-4">
+                <div className="opacity-20 italic text-xl">진행 중인 경매가 없습니다</div>
+                <p className="text-[10px] text-white/30 uppercase tracking-widest">모든 세션이 종료되었다면 상단의 Finish 버튼을 누르세요</p>
+              </div>
             )}
           </div>
+
           <div className="flex-1 bg-[#111] rounded-[3rem] p-8 border border-white/5 overflow-hidden flex flex-col">
              <h3 className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em] mb-6 flex items-center gap-2"><Activity size={12}/> 세션 리스트</h3>
              <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-hide">
                 {items.map(item => (
                   <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${item.status === 'active' ? 'bg-[#A52A2A]/10 border-[#A52A2A]/40' : 'bg-white/[0.02] border-white/5 opacity-40'}`}>
                     <span className="text-xs font-bold">{item.title}</span>
-                    {item.status === 'pending' && <button onClick={async () => await supabase.from("auction_items").update({status:'active'}).eq('id', item.id)} className="px-3 py-1 bg-white text-black text-[9px] font-black rounded uppercase">Start</button>}
+                    {item.status === 'pending' && (
+                      <button 
+                        onClick={async () => {
+                          // 다른 active 아이템이 있으면 먼저 finish 시키고 시작하는 로직 권장
+                          await supabase.from("auction_items").update({status:'active'}).eq('id', item.id);
+                        }} 
+                        className="px-3 py-1 bg-white text-black text-[9px] font-black rounded uppercase"
+                      >
+                        Start
+                      </button>
+                    )}
+                    {item.status === 'finished' && <span className="text-[9px] font-black text-[#FFD700] uppercase">Sold Out</span>}
                   </div>
                 ))}
              </div>
