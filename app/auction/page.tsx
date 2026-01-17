@@ -10,6 +10,12 @@ export default function AuctionPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [bidAmount, setBidAmount] = useState<string>("");
+
+  // 최소 입찰가 계산 (현재 최고가 + 100만원)
+  const minBidAmount = activeItem ? activeItem.current_bid + 100 : 100;
+  const bidAmountNum = parseInt(bidAmount, 10) || 0;
+  const isValidBid = bidAmountNum >= minBidAmount;
 
   // Fetch auction data
   const fetchAuctionData = useCallback(async () => {
@@ -41,7 +47,7 @@ export default function AuctionPage() {
     }
   }, []);
 
-  // Use unified phase redirect hook
+  // Use unified phase redirect hook with all Realtime listeners
   usePhaseRedirect({
     currentPage: "auction",
     onSettingsFetched: () => {
@@ -50,6 +56,14 @@ export default function AuctionPage() {
     },
     onAuctionItemsChange: () => {
       // Auction items changed - refresh data
+      fetchAuctionData();
+    },
+    onBidsChange: () => {
+      // Bids changed - refresh data
+      fetchAuctionData();
+    },
+    onUsersChange: () => {
+      // Users changed (balance updated) - refresh data
       fetchAuctionData();
     }
   });
@@ -73,18 +87,22 @@ export default function AuctionPage() {
   const handleBid = async () => {
     if (!activeItem?.id || !user?.id || loading) return;
 
-    const nextBid = activeItem.current_bid + 100;
-    if (user.balance < nextBid) {
-      alert(`잔액이 부족합니다. 입찰하려면 ${nextBid}만원이 필요합니다.`);
+    if (!isValidBid) {
+      alert(`최소 ${minBidAmount.toLocaleString()}만원 이상 입찰해야 합니다.`);
+      return;
+    }
+
+    if (user.balance < bidAmountNum) {
+      alert(`잔액이 부족합니다. 현재 잔액: ${user.balance.toLocaleString()}만원`);
       return;
     }
 
     setLoading(true);
     try {
-      // Check current state before bidding
+      // Check current state before bidding (including previous bidder info)
       const { data: currentItem } = await supabase
         .from("auction_items")
-        .select("status, current_bid")
+        .select("status, current_bid, highest_bidder_id")
         .eq("id", activeItem.id)
         .single();
 
@@ -94,31 +112,57 @@ export default function AuctionPage() {
         return;
       }
 
-      if (currentItem.current_bid !== activeItem.current_bid) {
-        alert("다른 참가자가 먼저 입찰했습니다. 다시 시도해주세요.");
+      // 다른 사용자가 먼저 입찰한 경우 - 최소 입찰가 재계산
+      const newMinBid = currentItem.current_bid + 100;
+      if (bidAmountNum < newMinBid) {
+        alert(`다른 참가자가 먼저 입찰했습니다. 최소 ${newMinBid.toLocaleString()}만원 이상 입찰해야 합니다.`);
         fetchAuctionData();
         return;
+      }
+
+      // 이전 입찰자가 있으면 환불 처리
+      if (currentItem.highest_bidder_id && currentItem.current_bid > 0) {
+        const previousBidderId = currentItem.highest_bidder_id;
+        const refundAmount = currentItem.current_bid;
+
+        // 이전 입찰자의 현재 잔액 조회
+        const { data: previousBidder } = await supabase
+          .from("users")
+          .select("balance")
+          .eq("id", previousBidderId)
+          .single();
+
+        if (previousBidder) {
+          // 이전 입찰자에게 환불
+          await supabase
+            .from("users")
+            .update({ balance: previousBidder.balance + refundAmount })
+            .eq("id", previousBidderId);
+
+          console.log(`환불 완료: ${previousBidderId}에게 ${refundAmount}만원 환불`);
+        }
       }
 
       // Update auction item
       await supabase
         .from("auction_items")
-        .update({ current_bid: nextBid, highest_bidder_id: user.id })
+        .update({ current_bid: bidAmountNum, highest_bidder_id: user.id })
         .eq("id", activeItem.id);
 
       // Record bid
       await supabase
         .from("bids")
-        .insert({ auction_item_id: activeItem.id, user_id: user.id, amount: nextBid });
+        .insert({ auction_item_id: activeItem.id, user_id: user.id, amount: bidAmountNum });
 
-      // Update user balance
-      const newBalance = user.balance - nextBid;
+      // Update new bidder's balance (deduct bid amount)
+      const newBalance = user.balance - bidAmountNum;
       await supabase
         .from("users")
         .update({ balance: newBalance })
         .eq("id", user.id);
 
-      alert(`${activeItem.title}에 입찰했습니다!`);
+      alert(`${activeItem.title}에 ${bidAmountNum.toLocaleString()}만원으로 입찰 완료!`);
+      setBidAmount("");
       fetchAuctionData();
     } catch (err: any) {
       console.error("Bid error:", err);
@@ -160,7 +204,7 @@ export default function AuctionPage() {
                       <div className={`w-1.5 h-1.5 rounded-full ${item.status === "active" ? "bg-[#A52A2A] animate-pulse" : "bg-gray-200"}`}></div>
                       <span className={`text-sm font-medium ${item.status === "finished" ? "text-gray-400 line-through" : "text-[#1A1A1A]"}`}>{item.title}</span>
                     </div>
-                    <span className="text-[11px] font-sans font-bold text-gray-400">{item.current_bid}만</span>
+                    <span className="text-[11px] font-sans font-bold text-gray-400">{item.current_bid.toLocaleString()}만</span>
                   </div>
                 ))}
               </div>
@@ -174,14 +218,45 @@ export default function AuctionPage() {
                   <div className="h-[1px] w-20 bg-[#A52A2A] mx-auto mb-10 opacity-30"></div>
                   <p className="text-[10px] font-sans font-black tracking-[0.4em] text-[#A52A2A]/60 mb-4 uppercase italic">Auction Now</p>
                   <h1 className="text-5xl font-medium italic tracking-tighter mb-12 leading-none break-all py-2">{activeItem.title}</h1>
-                  <div className="bg-[#FCF9F2]/50 py-10 rounded-[3rem] border border-[#F0EDE4] mb-12 shadow-inner">
+                  <div className="bg-[#FCF9F2]/50 py-10 rounded-[3rem] border border-[#F0EDE4] mb-8 shadow-inner">
                     <p className="text-[10px] font-sans font-black tracking-widest text-gray-300 mb-2 uppercase italic">현재 최고가</p>
                     <p className="text-5xl font-light text-[#A52A2A] tracking-tighter italic">
-                      {activeItem.current_bid}<span className="text-sm not-italic ml-1 opacity-30 font-sans font-normal">만원</span>
+                      {activeItem.current_bid.toLocaleString()}<span className="text-sm not-italic ml-1 opacity-30 font-sans font-normal">만원</span>
                     </p>
                   </div>
-                  <button onClick={handleBid} disabled={loading} className="w-full bg-[#1A1A1A] text-white py-7 rounded-[2.2rem] text-sm font-bold tracking-[0.3em] uppercase shadow-2xl active:scale-95 transition-all hover:bg-[#A52A2A] disabled:bg-gray-100">
-                    {loading ? "처리 중..." : "+100만원 입찰하기"}
+                  <div className="mb-6">
+                    <p className="text-[10px] font-sans font-black tracking-widest text-gray-400 mb-1 uppercase">나의 입찰가</p>
+                    <p className="text-[10px] font-sans text-gray-300 mb-3">
+                      최소 <span className="text-[#A52A2A] font-bold">{minBidAmount.toLocaleString()}만원</span> 이상
+                    </p>
+                    <div className={`flex items-center gap-3 bg-white border rounded-2xl px-6 py-4 transition-colors ${
+                      bidAmount && !isValidBid ? "border-red-300" : "border-[#EEEBDE]"
+                    }`}>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={bidAmount ? parseInt(bidAmount, 10).toLocaleString() : ""}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/[^0-9]/g, "");
+                          setBidAmount(value);
+                        }}
+                        placeholder={minBidAmount.toLocaleString()}
+                        className="flex-1 text-3xl font-light text-[#1A1A1A] bg-transparent outline-none text-center tracking-tight"
+                      />
+                      <span className="text-gray-400 font-sans text-sm whitespace-nowrap">만원</span>
+                    </div>
+                    {bidAmount && !isValidBid && (
+                      <p className="text-[10px] font-sans text-red-400 mt-2 text-center">
+                        최소 입찰가보다 낮습니다
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleBid}
+                    disabled={loading || !isValidBid}
+                    className="w-full bg-[#1A1A1A] text-white py-7 rounded-[2.2rem] text-sm font-bold tracking-[0.3em] uppercase shadow-2xl active:scale-95 transition-all hover:bg-[#A52A2A] disabled:bg-gray-200 disabled:cursor-not-allowed"
+                  >
+                    {loading ? "처리 중..." : `${bidAmountNum ? bidAmountNum.toLocaleString() : minBidAmount.toLocaleString()}만원 입찰`}
                   </button>
                 </div>
               </div>
@@ -200,7 +275,7 @@ export default function AuctionPage() {
             <h2 className="text-2xl italic tracking-tight mb-8">가치관 경매 안내</h2>
             <div className="space-y-5 text-sm font-light text-gray-500 mb-10 leading-loose text-left px-4 font-sans">
               <p>• 1인당 자산 <span className="text-[#A52A2A] font-bold">1,000만원</span>이 지급됩니다.</p>
-              <p>• 모든 입찰은 <span className="text-[#A52A2A] font-bold">100만원 단위</span>로만 가능합니다.</p>
+              <p>• 현재 최고가보다 <span className="text-[#A52A2A] font-bold">최소 100만원 이상</span> 높게 입찰해야 합니다.</p>
               <p>• 입찰 성공 시 자산이 <span className="text-gray-900 font-bold underline decoration-[#A52A2A]/30">즉시 차감</span>됩니다.</p>
               <p>• 이전 입찰자가 있을 경우 해당 금액은 즉시 환불됩니다.</p>
             </div>

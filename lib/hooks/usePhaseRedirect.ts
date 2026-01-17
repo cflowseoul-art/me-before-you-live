@@ -25,6 +25,10 @@ interface UsePhaseRedirectOptions {
   onAuctionItemsChange?: () => void;
   /** Custom callback for feed_likes changes (only for feed page) */
   onFeedLikesChange?: () => void;
+  /** Custom callback for bids changes (only for auction page) */
+  onBidsChange?: () => void;
+  /** Custom callback for users changes (only for auction page) */
+  onUsersChange?: () => void;
 }
 
 /**
@@ -33,7 +37,7 @@ interface UsePhaseRedirectOptions {
  * All values are treated as TEXT type (string comparison)
  */
 export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
-  const { currentPage, onSettingsFetched, onAuctionItemsChange, onFeedLikesChange } = options;
+  const { currentPage, onSettingsFetched, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange } = options;
 
   // Get user ID from localStorage
   const getUserId = useCallback((): string | null => {
@@ -210,6 +214,30 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
       );
     }
 
+    // Add bids listener if on auction page
+    if (currentPage === "auction" && onBidsChange) {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bids" },
+        (payload) => {
+          console.log("💰 Bids changed:", payload.eventType);
+          onBidsChange();
+        }
+      );
+    }
+
+    // Add users listener if on auction page
+    if (currentPage === "auction" && onUsersChange) {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "users" },
+        (payload) => {
+          console.log("👤 Users changed:", payload.eventType);
+          onUsersChange();
+        }
+      );
+    }
+
     // Subscribe to channel
     channel.subscribe((status) => {
       console.log(`📡 [${currentPage}] Subscription status:`, status);
@@ -220,7 +248,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
       console.log(`🔌 [${currentPage}] Unsubscribing from Realtime`);
       supabase.removeChannel(channel);
     };
-  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange]);
+  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange]);
 
   return { fetchAndCheckSettings, getUserId };
 }

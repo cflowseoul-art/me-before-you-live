@@ -153,18 +153,33 @@ export default function FeedPage() {
 
     try {
       if (currentlyLiked) {
-        await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
+        const { error } = await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
+        if (error) {
+          console.error("❌ Delete like error:", error);
+          throw error;
+        }
+        console.log("💔 Like removed successfully for photo:", item.id);
       } else {
-        await supabase.from("feed_likes").insert({ user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id });
+        const insertData = { user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id };
+        console.log("📤 Inserting like:", JSON.stringify(insertData));
+
+        const response = await supabase.from("feed_likes").insert(insertData).select();
+        console.log("📥 Insert response:", JSON.stringify(response));
+
+        if (response.error) {
+          console.error("❌ Insert like error:", JSON.stringify(response.error));
+          throw new Error(response.error.message || "Insert failed");
+        }
+        console.log("❤️ Like added successfully:", response.data);
       }
-      
+
       if (nextStatus) {
         setLikes(prev => [...prev, { user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id }]);
       } else {
         setLikes(prev => prev.filter(l => !(String(l.user_id) === String(currentUser.id) && String(l.photo_id) === String(item.id))));
       }
     } catch (e) {
-      console.error(e);
+      console.error("Like operation failed:", e);
       fetchFeedData(currentSession);
     } finally {
       setTimeout(() => {

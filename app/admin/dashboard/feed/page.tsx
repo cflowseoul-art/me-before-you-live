@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { Heart, Trophy, Users, TrendingUp, Sparkles, Loader2 } from "lucide-react";
+import { parseDriveFileName } from "@/lib/utils/feed-parser";
 
 interface FeedItem {
   id: string;
@@ -23,6 +24,34 @@ export default function FeedDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentSession, setCurrentSession] = useState("01");
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
+
+  // Ref to hold current session for Realtime callback
+  const sessionRef = useRef(currentSession);
+
+  // 성별 판단 함수 (다양한 형식 지원)
+  const isFemaleGender = (gender: string) => {
+    const g = gender?.toUpperCase?.() || "";
+    return g === "F" || g === "FEMALE" || g === "여" || g === "여성";
+  };
+  const isMaleGender = (gender: string) => {
+    const g = gender?.toUpperCase?.() || "";
+    return g === "M" || g === "MALE" || g === "남" || g === "남성";
+  };
+
+  // 성별로 필터링된 아이템
+  const filteredItems = genderFilter === "all"
+    ? feedItems
+    : genderFilter === "F"
+      ? feedItems.filter(item => isFemaleGender(item.gender))
+      : feedItems.filter(item => isMaleGender(item.gender));
+
+  // 성별별 통계
+  const femaleItems = feedItems.filter(item => isFemaleGender(item.gender));
+  const maleItems = feedItems.filter(item => isMaleGender(item.gender));
+
+  // 디버깅용 로그
+  console.log("Feed items genders:", feedItems.map(item => item.gender));
 
   const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_API_KEY;
   const FOLDER_ID = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID;
@@ -82,32 +111,45 @@ export default function FeedDashboard() {
       const likes = likesRes.data || [];
       const users = usersRes.data || [];
 
+      // Build like counts by photo_id (each photo has unique likes)
       const likeCounts: Record<string, number> = {};
       likes.forEach(like => {
-        likeCounts[like.target_user_id] = (likeCounts[like.target_user_id] || 0) + 1;
+        const photoId = String(like.photo_id);
+        likeCounts[photoId] = (likeCounts[photoId] || 0) + 1;
       });
 
+      console.log("📊 Like counts by photo:", likeCounts);
+
       const matchedItems: FeedItem[] = allFiles
-        .filter((file: any) => file.name.startsWith(`${session}_`))
         .map((file: any) => {
-          const namePart = file.name.replace(/\.[^/.]+$/, "");
-          const [, realName, suffix, gender, caption] = namePart.split("_");
+          const parsed = parseDriveFileName(file.name);
+
+          // Only include files from current session
+          if (!parsed || parsed.session !== session) return null;
 
           const matchedUser = users.find(
-            (u: any) => u.real_name === realName && u.phone_suffix === suffix
+            (u: any) => String(u.real_name).trim() === parsed.realName &&
+                        String(u.phone_suffix).trim() === parsed.phoneSuffix
           );
 
-          if (!matchedUser) return null;
+          if (!matchedUser) {
+            console.log("❌ No user match for:", parsed.realName, parsed.phoneSuffix);
+            return null;
+          }
+
+          const targetUserId = String(matchedUser.id);
+          const photoId = String(file.id);
+          const likeCount = likeCounts[photoId] || 0;
 
           return {
             id: file.id,
             photo_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w800`,
             nickname: matchedUser.nickname,
-            real_name: realName || "Unknown",
-            gender: gender || matchedUser.gender || "Unknown",
-            caption: caption || "",
-            target_user_id: matchedUser.id,
-            like_count: likeCounts[matchedUser.id] || 0
+            real_name: parsed.realName,
+            gender: parsed.gender || matchedUser.gender || "Unknown",
+            caption: parsed.caption || "",
+            target_user_id: targetUserId,
+            like_count: likeCount
           };
         })
         .filter((item: FeedItem | null): item is FeedItem => item !== null)
@@ -123,25 +165,35 @@ export default function FeedDashboard() {
   };
 
   useEffect(() => {
-    let sessionRef = currentSession;
-
     const init = async () => {
       const { data } = await supabase.from("system_settings").select("value").eq("key", "current_session").single();
       const session = data?.value || "01";
-      sessionRef = session;
+      sessionRef.current = session;
       setCurrentSession(session);
       fetchFeedData(session);
     };
     init();
 
-    // Fixed: Use sessionRef to avoid stale closure issue
-    const channel = supabase.channel("feed_admin_sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "feed_likes" }, () => {
-        fetchFeedData(sessionRef);
-      })
-      .subscribe();
+    // Realtime listener
+    const channelName = `feed_admin_dashboard_${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "feed_likes" },
+        (payload) => {
+          console.log("❤️ Feed likes changed:", payload.eventType, payload);
+          fetchFeedData(sessionRef.current);
+        }
+      )
+      .subscribe((status) => {
+        console.log("📡 Feed Admin Dashboard subscription:", status);
+      });
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      console.log("🔌 Unsubscribing from feed_likes");
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   if (isLoading) {
@@ -185,7 +237,7 @@ export default function FeedDashboard() {
       </nav>
 
       {/* Stats Bar */}
-      <div className="px-10 py-6 flex gap-6 shrink-0">
+      <div className="px-10 py-6 flex gap-6 shrink-0 flex-wrap">
         <div className="bg-[#111] border border-white/5 rounded-2xl px-8 py-5 flex items-center gap-4">
           <Users className="text-pink-500" size={20} />
           <div>
@@ -207,6 +259,40 @@ export default function FeedDashboard() {
             <p className="text-2xl font-black text-white">{feedItems[0]?.like_count || 0}</p>
           </div>
         </div>
+
+        {/* Gender Filter Tabs */}
+        <div className="flex-1 flex justify-end items-center gap-2">
+          <button
+            onClick={() => setGenderFilter("all")}
+            className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              genderFilter === "all"
+                ? "bg-white text-black"
+                : "bg-white/5 text-white/50 hover:bg-white/10"
+            }`}
+          >
+            전체 ({feedItems.length})
+          </button>
+          <button
+            onClick={() => setGenderFilter("F")}
+            className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              genderFilter === "F"
+                ? "bg-pink-500 text-white"
+                : "bg-pink-500/10 text-pink-400 hover:bg-pink-500/20"
+            }`}
+          >
+            여성 ({femaleItems.length})
+          </button>
+          <button
+            onClick={() => setGenderFilter("M")}
+            className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              genderFilter === "M"
+                ? "bg-blue-500 text-white"
+                : "bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+            }`}
+          >
+            남성 ({maleItems.length})
+          </button>
+        </div>
       </div>
 
       {/* Photo Ranking Grid */}
@@ -224,48 +310,64 @@ export default function FeedDashboard() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {feedItems.map((item, idx) => (
-              <div
-                key={item.id}
-                className={`relative group rounded-2xl overflow-hidden border transition-all duration-500 ${
-                  idx === 0
-                    ? 'border-pink-500/50 shadow-[0_0_30px_rgba(236,72,153,0.2)] ring-2 ring-pink-500/20'
-                    : idx < 3
-                      ? 'border-pink-500/20'
-                      : 'border-white/5'
-                }`}
-              >
-                <div className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${
-                  idx === 0 ? 'bg-pink-500 text-white' :
-                  idx < 3 ? 'bg-black/80 text-pink-400 border border-pink-500/30' :
-                  'bg-black/60 text-white/60'
-                }`}>
-                  {idx + 1}
-                </div>
+            {filteredItems.map((item, idx) => {
+              const isFemale = isFemaleGender(item.gender);
 
-                <div className="aspect-square w-full bg-black/40">
-                  <img
-                    src={item.photo_url}
-                    alt={item.nickname}
-                    className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
-                    onError={(e) => { (e.target as any).src = "https://via.placeholder.com/400?text=No+Image"; }}
-                  />
-                </div>
+              return (
+                <div
+                  key={item.id}
+                  className={`relative group rounded-2xl overflow-hidden border transition-all duration-500 ${
+                    idx === 0
+                      ? isFemale
+                        ? 'border-pink-500/50 shadow-[0_0_30px_rgba(236,72,153,0.2)] ring-2 ring-pink-500/20'
+                        : 'border-blue-500/50 shadow-[0_0_30px_rgba(59,130,246,0.2)] ring-2 ring-blue-500/20'
+                      : idx < 3
+                        ? isFemale ? 'border-pink-500/20' : 'border-blue-500/20'
+                        : 'border-white/5'
+                  }`}
+                >
+                  <div className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${
+                    idx === 0
+                      ? isFemale ? 'bg-pink-500 text-white' : 'bg-blue-500 text-white'
+                      : idx < 3
+                        ? isFemale ? 'bg-black/80 text-pink-400 border border-pink-500/30' : 'bg-black/80 text-blue-400 border border-blue-500/30'
+                        : 'bg-black/60 text-white/60'
+                  }`}>
+                    {idx + 1}
+                  </div>
 
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-white truncate">{item.nickname}</p>
-                      <p className="text-[9px] text-white/40 uppercase tracking-wider">{item.gender}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-pink-500/90 px-3 py-1.5 rounded-full shrink-0 ml-2">
-                      <Heart size={12} fill="white" className="text-white" />
-                      <span className="text-xs font-black text-white">{item.like_count}</span>
+                  {/* Gender Badge */}
+                  <div className={`absolute top-3 right-3 z-20 px-2 py-1 rounded-full text-[8px] font-black uppercase ${
+                    isFemale ? 'bg-pink-500/80 text-white' : 'bg-blue-500/80 text-white'
+                  }`}>
+                    {isFemale ? '여' : '남'}
+                  </div>
+
+                  <div className="aspect-square w-full bg-black/40">
+                    <img
+                      src={item.photo_url}
+                      alt="익명"
+                      className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+                      onError={(e) => { (e.target as any).src = "https://via.placeholder.com/400?text=No+Image"; }}
+                    />
+                  </div>
+
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-white/50 truncate italic">익명</p>
+                      </div>
+                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0 ml-2 ${
+                        isFemale ? 'bg-pink-500/90' : 'bg-blue-500/90'
+                      }`}>
+                        <Heart size={12} fill="white" className="text-white" />
+                        <span className="text-xs font-black text-white">{item.like_count}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

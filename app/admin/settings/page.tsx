@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, LayoutDashboard, UserPlus, Trash2, RotateCcw, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import { ChevronLeft, LayoutDashboard, UserPlus, Trash2, RotateCcw, Sparkles, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 export default function AdminSettings() {
   const router = useRouter();
@@ -16,6 +16,9 @@ export default function AdminSettings() {
   const [phaseSuccess, setPhaseSuccess] = useState<string | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [sessionSuccess, setSessionSuccess] = useState(false);
+  const [isResetLoading, setIsResetLoading] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
 
   const fetchSettings = async () => {
     // Use API route to fetch settings (bypasses RLS)
@@ -164,6 +167,38 @@ export default function AdminSettings() {
     fetchSettings();
   };
 
+  const handleSessionReset = async () => {
+    if (resetConfirmText !== "초기화") {
+      alert("'초기화'를 정확히 입력해주세요.");
+      return;
+    }
+
+    setIsResetLoading(true);
+    try {
+      const res = await fetch('/api/admin/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await res.json();
+      console.log('Reset API response:', result);
+
+      if (!result.success) {
+        throw new Error(result.error || JSON.stringify(result.results) || 'Reset failed');
+      }
+
+      alert("✅ 회차 초기화가 완료되었습니다.\n\n모든 유저, 피드, 입찰 기록이 삭제되고\n옥션이 초기 상태로 리셋되었습니다.");
+      setShowResetConfirm(false);
+      setResetConfirmText("");
+      fetchSettings();
+    } catch (err: any) {
+      console.error('Reset error:', err);
+      alert("초기화 중 오류가 발생했습니다: " + err.message);
+    } finally {
+      setIsResetLoading(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[#FDFDFD] p-6 text-[#1A1A1A] font-serif relative pb-20">
       <header className="mb-10 flex justify-between items-center shrink-0">
@@ -292,6 +327,93 @@ export default function AdminSettings() {
           ))}
         </div>
       </section>
+
+      {/* 🚨 Danger Zone - 회차 초기화 */}
+      <section className="mt-12 bg-red-50 border-2 border-red-200 p-8 rounded-[2.5rem]">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertTriangle size={20} className="text-red-600" />
+          <h3 className="text-sm font-sans font-black text-red-600 uppercase tracking-widest italic">Danger Zone</h3>
+        </div>
+        <div className="bg-white border border-red-100 p-6 rounded-2xl">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h4 className="font-bold text-[#1A1A1A] mb-1">회차 초기화 (Session Reset)</h4>
+              <p className="text-[11px] font-sans text-gray-500 leading-relaxed">
+                모든 유저, 피드, 입찰 기록을 삭제하고<br/>
+                옥션을 초기 상태로 되돌립니다. <span className="text-red-500 font-bold">되돌릴 수 없습니다.</span>
+              </p>
+            </div>
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="shrink-0 px-6 py-3 bg-red-600 text-white rounded-xl text-[10px] font-sans font-black uppercase tracking-widest shadow-md hover:bg-red-700 transition-all active:scale-95 flex items-center gap-2"
+            >
+              <RotateCcw size={14} /> 전체 초기화
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Reset Confirm Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-10 w-full max-w-md text-center shadow-2xl">
+            <div className="w-20 h-20 bg-red-100 text-red-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8">
+              <AlertTriangle size={40} />
+            </div>
+            <h3 className="text-2xl font-serif italic font-bold mb-3 tracking-tight text-red-600">회차 초기화</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed font-sans">
+              정말로 모든 데이터를 초기화하시겠습니까?<br/>
+              <span className="text-red-500 font-bold">이 작업은 되돌릴 수 없습니다.</span>
+            </p>
+            <div className="bg-red-50 p-5 rounded-2xl mb-6 text-left border border-red-100">
+              <p className="text-[10px] text-red-400 uppercase font-black mb-3 font-sans">삭제될 항목:</p>
+              <ul className="text-xs text-gray-600 space-y-1 font-sans">
+                <li>• 모든 유저 계정</li>
+                <li>• 모든 피드 아이템 및 좋아요</li>
+                <li>• 모든 입찰 기록</li>
+                <li>• 옥션 진행 상태 (pending으로 리셋)</li>
+              </ul>
+            </div>
+            <div className="mb-6">
+              <p className="text-[10px] text-gray-400 uppercase font-black mb-2 font-sans">확인을 위해 "초기화"를 입력하세요</p>
+              <input
+                type="text"
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder="초기화"
+                className="w-full text-center text-lg font-bold border-2 border-gray-200 rounded-xl py-3 focus:border-red-500 outline-none"
+              />
+            </div>
+            <div className="space-y-3 font-sans">
+              <button
+                onClick={handleSessionReset}
+                disabled={isResetLoading || resetConfirmText !== "초기화"}
+                className="w-full py-5 bg-red-600 text-white rounded-2xl font-black text-xs uppercase shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isResetLoading ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> 초기화 중...
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={14} /> 초기화 실행
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowResetConfirm(false);
+                  setResetConfirmText("");
+                }}
+                disabled={isResetLoading}
+                className="w-full py-3 text-[10px] text-gray-500 font-bold uppercase hover:underline disabled:opacity-50"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDriveModal && targetUser && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
