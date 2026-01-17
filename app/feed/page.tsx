@@ -39,7 +39,6 @@ export default function FeedPage() {
   const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_API_KEY;
   const FOLDER_ID = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID;
 
-  // 1. 로컬 유저 로드
   useEffect(() => {
     const stored = localStorage.getItem("auction_user");
     if (stored) {
@@ -50,7 +49,6 @@ export default function FeedPage() {
     }
   }, []);
 
-  // 2. 데이터 패칭 (유틸리티 적용 및 구문 완성)
   const fetchFeedData = useCallback(async (session: string) => {
     if (!session || !FOLDER_ID || !API_KEY) return;
     
@@ -69,7 +67,6 @@ export default function FeedPage() {
       const matchedItems = (driveData.files || [])
         .map((file: any) => {
           const info = parseDriveFileName(file.name);
-          // 현재 활성화된 세션 사진만 필터링
           if (!info || info.session !== session) return null;
 
           const matchedUser = usersRes.data?.find(u => 
@@ -85,7 +82,7 @@ export default function FeedPage() {
             user_id: currentUser?.id || "",
             target_user_id: String(matchedUser.id),
             nickname: matchedUser.nickname,
-            gender: info.gender,
+            gender: info.gender, // "남성" 또는 "여성" 등
             photo_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w800`,
             caption: info.caption
           } as FeedItem;
@@ -94,7 +91,6 @@ export default function FeedPage() {
       setFeedItems(matchedItems);
       setLikes(likesRes.data || []);
       
-      // 첫 로드 시에만 셔플 적용
       if (shuffledRawItems.length === 0) {
         setShuffledRawItems([...matchedItems].sort(() => Math.random() - 0.5));
       }
@@ -105,19 +101,30 @@ export default function FeedPage() {
     }
   }, [currentUser?.id, API_KEY, FOLDER_ID, shuffledRawItems.length]);
 
-  // 3. 페이즈 리다이렉트 연동
   usePhaseRedirect({
     currentPage: "feed",
     onSettingsFetched: (settings) => {
       const session = String(settings.current_session).padStart(2, '0');
       if (currentSession !== session) {
         setCurrentSession(session);
-        fetchFeedData(session);
       }
     }
   });
 
-  // 4. 필터 및 셔플 결과 계산
+  useEffect(() => {
+    if (!currentSession) return;
+    fetchFeedData(currentSession);
+
+    const channel = supabase
+      .channel("feed_likes_realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "feed_likes" }, () => {
+        fetchFeedData(currentSession);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentSession, fetchFeedData]);
+
   const displayItems = useMemo(() => {
     let items = shuffledRawItems.length > 0 ? shuffledRawItems : feedItems;
     if (genderFilter === "male") items = items.filter(i => ["남성", "남", "m", "male"].includes(i.gender.toLowerCase()));
@@ -125,7 +132,6 @@ export default function FeedPage() {
     return items;
   }, [shuffledRawItems, feedItems, genderFilter]);
 
-  // 5. 좋아요 상태 판별
   const checkIfLiked = (photoId: string) => {
     if (!currentUser?.id) return false;
     if (optimisticStatus[photoId] !== undefined) return optimisticStatus[photoId];
@@ -137,12 +143,25 @@ export default function FeedPage() {
     return checkIfLiked(photoId) ? othersCount + 1 : othersCount;
   };
 
-  // 6. 좋아요 처리
+  // [핵심] 좋아요 처리 로직: 본인 및 같은 성별 차단
   const handleLike = async (item: FeedItem) => {
-    if (String(currentUser?.id) === String(item.target_user_id)) {
+    if (!currentUser) return;
+
+    // 1. 본인 사진 차단
+    if (String(currentUser.id) === String(item.target_user_id)) {
       alert("본인 사진에는 하트를 남길 수 없습니다. :)");
       return;
     }
+
+    // 2. 같은 성별 차단 (성별 데이터 정규화 비교)
+    const userGender = String(currentUser.gender || "").substring(0, 1); // '남' 또는 '여'
+    const targetGender = String(item.gender || "").substring(0, 1);
+
+    if (userGender === targetGender) {
+      alert("이성 참가자의 사진에만 하트를 누를 수 있습니다! ❤️");
+      return;
+    }
+
     if (isSyncing.current[item.id]) return;
 
     const currentlyLiked = checkIfLiked(item.id);
@@ -153,33 +172,12 @@ export default function FeedPage() {
 
     try {
       if (currentlyLiked) {
-        const { error } = await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
-        if (error) {
-          console.error("❌ Delete like error:", error);
-          throw error;
-        }
-        console.log("💔 Like removed successfully for photo:", item.id);
+        await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
       } else {
-        const insertData = { user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id };
-        console.log("📤 Inserting like:", JSON.stringify(insertData));
-
-        const response = await supabase.from("feed_likes").insert(insertData).select();
-        console.log("📥 Insert response:", JSON.stringify(response));
-
-        if (response.error) {
-          console.error("❌ Insert like error:", JSON.stringify(response.error));
-          throw new Error(response.error.message || "Insert failed");
-        }
-        console.log("❤️ Like added successfully:", response.data);
-      }
-
-      if (nextStatus) {
-        setLikes(prev => [...prev, { user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id }]);
-      } else {
-        setLikes(prev => prev.filter(l => !(String(l.user_id) === String(currentUser.id) && String(l.photo_id) === String(item.id))));
+        await supabase.from("feed_likes").insert({ user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id });
       }
     } catch (e) {
-      console.error("Like operation failed:", e);
+      console.error(e);
       fetchFeedData(currentSession);
     } finally {
       setTimeout(() => {
@@ -189,11 +187,11 @@ export default function FeedPage() {
           return next;
         });
         isSyncing.current[item.id] = false;
-      }, 1000);
+      }, 500);
     }
   };
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-[#FDFDFD] font-serif italic text-gray-400">Loading Gallery...</div>;
+  if (isLoading && feedItems.length === 0) return <div className="min-h-screen flex items-center justify-center bg-[#FDFDFD] font-serif italic text-gray-400">Loading Gallery...</div>;
 
   return (
     <div className="min-h-screen bg-[#FDFDFD] text-[#1A1A1A] font-serif pb-24 select-none">
