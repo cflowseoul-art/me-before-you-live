@@ -51,7 +51,6 @@ export default function AdminSettings() {
     fetchSettings();
   }, []);
 
-  // --- [수정] AUCTION_ITEMS 문자열 배열을 DB에 밀어넣는 로직 ---
   const syncInventoryFromConstants = async () => {
     if (!AUCTION_ITEMS || AUCTION_ITEMS.length === 0) {
       alert("constants.ts에서 AUCTION_ITEMS를 찾을 수 없습니다.");
@@ -61,18 +60,15 @@ export default function AdminSettings() {
 
     setIsSyncLoading(true);
     try {
-      // 1. 기존 데이터 삭제 (UUID 대응: id가 null이 아닌 행 전체 삭제)
       await supabase.from("bids").delete().filter("id", "not.is", null);
       await supabase.from("auction_items").delete().filter("id", "not.is", null);
 
-      // 2. AUCTION_ITEMS 문자열 배열을 DB 구조에 맞게 매핑
       const itemsToInsert = AUCTION_ITEMS.map((val) => ({
-        title: val,       // ["사랑", "돈"...] 에서 문자열 하나가 곧 title
-        current_bid: 0,   // 기본 시작가
+        title: val,
+        current_bid: 0,
         status: 'pending'
       }));
 
-      // 3. DB 삽입
       const { error } = await supabase.from("auction_items").insert(itemsToInsert);
       if (error) throw error;
 
@@ -85,14 +81,28 @@ export default function AdminSettings() {
     }
   };
 
+  // --- [수정된 Feed Reset 로직] ---
   const resetFeed = async () => {
-    if (!confirm("피드를 초기화하시겠습니까?\n- 모든 좋아요 삭제")) return;
+    if (!confirm("피드를 초기화하시겠습니까?\n- 모든 좋아요(하트) 기록이 삭제됩니다.")) return;
 
     setIsFeedResetLoading(true);
     try {
-      await supabase.from("feed_likes").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      alert("피드가 초기화되었습니다.");
+      // 1. feed_likes 테이블 삭제 (이것만 해도 피드에서 하트가 사라집니다)
+      const { error: likesError } = await supabase
+        .from("feed_likes")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      if (likesError) throw likesError;
+
+      // 2. feed_items 테이블의 컬럼명 오류를 방지하기 위해 
+      // 컬럼 업데이트 로직은 제외하거나, 정확한 컬럼 확인 후 추가하는 것이 안전합니다.
+      // 일단 상세 기록 삭제만으로 초기화 효과를 낼 수 있도록 구성했습니다.
+
+      alert("✅ 피드 좋아요 기록이 초기화되었습니다.");
+      fetchSettings();
     } catch (err: any) {
+      console.error('Feed reset error:', err);
       alert("초기화 중 오류 발생: " + err.message);
     } finally {
       setIsFeedResetLoading(false);
@@ -164,7 +174,7 @@ export default function AdminSettings() {
           photo_number: i,
           order_prefix: "00",
           gender_code: user.gender || "F",
-          feed_likes: 0 // 수정된 컬럼명 반영
+          feed_likes: 0 
         });
       }
     });
@@ -279,7 +289,7 @@ export default function AdminSettings() {
         </motion.button>
       </motion.header>
 
-      {/* 1. Service Phase Control */}
+      {/* Phase Control */}
       <motion.section
         className="p-7 text-white mb-6 shadow-2xl"
         style={{ backgroundColor: colors.primary, borderRadius: "2.5rem", borderBottom: `4px solid ${colors.accent}` }}
@@ -308,7 +318,7 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 2. Values Sync Section (AUCTION_ITEMS 문자열 배열 동기화) */}
+      {/* Values Sync */}
       <motion.section className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="p-8 flex justify-between items-center shadow-sm" style={{ backgroundColor: `${colors.primary}05`, border: `1px solid ${colors.soft}`, borderRadius: "2.5rem" }}>
           <div>
@@ -328,7 +338,7 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 2.5. Auction Reset */}
+      {/* Auction Reset */}
       <motion.section className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="p-8 flex justify-between items-center shadow-sm" style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "2.5rem" }}>
           <div>
@@ -348,7 +358,7 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 2.6. Feed Reset */}
+      {/* Feed Reset (Fixed) */}
       <motion.section className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="p-8 flex justify-between items-center shadow-sm" style={{ backgroundColor: "#FDF2F8", border: "1px solid #FBCFE8", borderRadius: "2.5rem" }}>
           <div>
@@ -358,7 +368,7 @@ export default function AdminSettings() {
           <motion.button
             onClick={resetFeed}
             disabled={isFeedResetLoading}
-            className="flex items-center gap-2 px-6 py-3 text-white text-[10px] font-sans font-black uppercase tracking-widest shadow-md bg-pink-500"
+            className="flex items-center gap-2 px-6 py-3 text-white text-[10px] font-sans font-black uppercase tracking-widest shadow-md bg-pink-500 disabled:bg-pink-300"
             style={{ borderRadius: borderRadius.card }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -368,7 +378,7 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 3. Feed Initializer */}
+      {/* Feed Initializer */}
       <motion.section className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="p-8 flex justify-between items-center shadow-sm" style={{ backgroundColor: `${colors.accent}08`, border: `1px solid ${colors.accent}20`, borderRadius: "2.5rem" }}>
           <div>
@@ -387,7 +397,7 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 4. Current Session */}
+      {/* Current Session */}
       <motion.section className="bg-white p-7 mb-12 shadow-sm" style={{ borderRadius: "2.5rem", border: `1px solid ${colors.soft}` }}>
         <h3 className="text-[9px] font-sans font-black tracking-[0.4em] uppercase mb-4 text-center italic" style={{ color: colors.accent }}>Current Session (회차)</h3>
         <div className="flex items-center justify-center gap-3">
@@ -405,7 +415,7 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 5. Attendee Management */}
+      {/* Attendee Management */}
       <motion.section className="space-y-4">
         <h3 className="text-[10px] font-sans font-black tracking-[0.3em] uppercase italic mb-6" style={{ color: colors.muted }}>Attendee Management</h3>
         <div className="space-y-3">
@@ -442,13 +452,13 @@ export default function AdminSettings() {
         </div>
       </motion.section>
 
-      {/* 6. Danger Zone */}
+      {/* Danger Zone */}
       <motion.section className="mt-12 bg-red-50 border-2 border-red-200 p-8" style={{ borderRadius: "2.5rem" }}>
         <div className="flex items-center gap-3 mb-4 text-red-600">
           <AlertTriangle size={20} />
           <h3 className="text-sm font-sans font-black uppercase tracking-widest italic">Danger Zone</h3>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-red-100 p-6 rounded-2xl flex justify-between items-center">
+        <div className="bg-white p-6 rounded-2xl border border-red-100 flex justify-between items-center">
           <div><h4 className="font-bold">Session Reset</h4><p className="text-[11px] text-gray-400 font-sans">모든 데이터 초기화</p></div>
           <motion.button 
             onClick={() => setShowResetConfirm(true)} 

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { Activity, Trophy, History, Settings, Play, RotateCcw, RefreshCw, Heart } from "lucide-react";
+import { Activity, Trophy, History, Settings, Play, RotateCcw, RefreshCw, Heart, LayoutDashboard } from "lucide-react";
 
 export default function AuctionDashboard() {
   const router = useRouter();
@@ -39,14 +39,12 @@ export default function AuctionDashboard() {
   }, []);
 
   const handleStartAuction = async (itemId: number) => {
-    // 낙관적 업데이트: 즉시 UI 반영
     setItems(prev => prev.map(item => {
       if (item.status === 'active') return { ...item, status: 'finished' };
       if (item.id === itemId) return { ...item, status: 'active' };
       return item;
     }));
 
-    // DB 업데이트 (await로 확실하게 반영)
     const currentActive = items.find(i => i.status === 'active');
     if (currentActive && currentActive.id !== itemId) {
       await supabase.from("auction_items").update({ status: 'finished' }).eq('id', currentActive.id);
@@ -55,7 +53,6 @@ export default function AuctionDashboard() {
   };
 
   const handleFinishAuction = async (itemId: number) => {
-    // 낙관적 업데이트
     setItems(prev => prev.map(item =>
       item.id === itemId ? { ...item, status: 'finished' } : item
     ));
@@ -63,40 +60,22 @@ export default function AuctionDashboard() {
   };
 
   const handleRevertToPending = async (itemId: number) => {
-    // 낙관적 업데이트
     setItems(prev => prev.map(item =>
       item.id === itemId ? { ...item, status: 'pending' } : item
     ));
     await supabase.from("auction_items").update({ status: 'pending' }).eq('id', itemId);
   };
 
-  const handleResetFeed = async () => {
-    if (!confirm("피드를 초기화하시겠습니까?\n- 모든 좋아요 삭제")) return;
-
-    try {
-      await supabase.from("feed_likes").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      alert("피드가 초기화되었습니다.");
-    } catch (err) {
-      console.error("Feed reset error:", err);
-      alert("초기화 중 오류가 발생했습니다.");
-    }
-  };
-
   const handleResetAuction = async () => {
     if (!confirm("경매를 초기화하시겠습니까?\n- 모든 입찰 내역 삭제\n- 모든 아이템 pending 상태로\n- 참가자 잔액 1000만원으로 복구")) return;
 
     try {
-      // 1. 입찰 내역 삭제
       await supabase.from("bids").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-      // 2. 아이템 초기화
       await supabase.from("auction_items").update({
         status: 'pending',
         current_bid: 0,
         highest_bidder_id: null
       }).neq("id", "00000000-0000-0000-0000-000000000000");
-
-      // 3. 유저 잔액 초기화
       await supabase.from("users").update({ balance: 1000 }).neq("id", "00000000-0000-0000-0000-000000000000");
 
       alert("경매가 초기화되었습니다.");
@@ -126,7 +105,17 @@ export default function AuctionDashboard() {
           <span className="hidden sm:inline text-[8px] md:text-[9px] font-bold uppercase tracking-[0.2em] md:tracking-[0.4em] text-[#A52A2A] bg-[#FDF8F8] px-2 md:px-3 py-1 rounded-full border border-[#A52A2A]/10">Admin</span>
         </div>
         <div className="flex items-center gap-1 md:gap-2">
-          <button onClick={handleResetFeed} className="p-2 md:p-2.5 rounded-full border border-pink-200 hover:bg-pink-50 text-pink-500 transition-all" title="피드 초기화"><Heart size={14} className="md:w-4 md:h-4" /></button>
+          {/* [수정] 하트 버튼: 초기화 로직 제거 및 피드 대시보드 다이렉션으로 변경 */}
+          <motion.button 
+            onClick={() => router.push("/admin/dashboard/feed")} 
+            className="p-2 md:p-2.5 rounded-full border border-pink-200 hover:bg-pink-50 text-pink-500 transition-all shadow-sm"
+            whileHover={{ scale: 1.1, rotate: 5 }}
+            whileTap={{ scale: 0.9 }}
+            title="피드 대시보드"
+          >
+            <Heart size={14} className="md:w-4 md:h-4" fill="currentColor" />
+          </motion.button>
+
           <button onClick={handleResetAuction} className="p-2 md:p-2.5 rounded-full border border-red-200 hover:bg-red-50 text-red-500 transition-all" title="경매 초기화"><RefreshCw size={14} className="md:w-4 md:h-4" /></button>
           <button onClick={() => router.push("/admin/settings")} className="p-2 md:p-2.5 rounded-full border border-[#EEEBDE] hover:bg-[#F0EDE4] transition-all"><Settings size={14} className="md:w-4 md:h-4" /></button>
         </div>
@@ -137,7 +126,6 @@ export default function AuctionDashboard() {
 
         {/* TOP: Active Now | Inventory Flow */}
         <div className="h-[30%] md:h-[35%] grid grid-cols-2 gap-2 md:gap-4 shrink-0">
-          {/* Active Now */}
           <section className="flex flex-col min-h-0">
             <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-[#A52A2A]">Active Now</h3>
             <div className="flex-1 bg-white rounded-xl md:rounded-[2rem] border border-[#EEEBDE] shadow-lg p-2 md:p-6 flex flex-col justify-center overflow-hidden">
@@ -155,7 +143,6 @@ export default function AuctionDashboard() {
             </div>
           </section>
 
-          {/* Inventory Flow */}
           <section className="flex flex-col min-h-0">
             <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-gray-400">Inventory</h3>
             <div className="flex-1 bg-[#F0EDE4]/50 rounded-xl md:rounded-[2rem] border border-[#EEEBDE] p-1.5 md:p-4 overflow-y-auto custom-scrollbar">
@@ -197,7 +184,7 @@ export default function AuctionDashboard() {
           </div>
         </section>
 
-        {/* BOTTOM: Identity Ranking - 컨텐츠에 맞게 자동 크기 */}
+        {/* BOTTOM: Identity Ranking */}
         <section className="shrink-0">
           <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-gray-400">Ranking</h3>
           <div className="bg-[#F0EDE4] rounded-xl md:rounded-2xl p-2 md:p-3 flex flex-wrap gap-1 md:gap-2 shadow-inner">

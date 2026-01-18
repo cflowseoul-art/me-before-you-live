@@ -3,16 +3,29 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { Heart, Trophy, Users, TrendingUp, Sparkles, Loader2, ChevronLeft } from "lucide-react";
+import { 
+  Heart, Trophy, Users, TrendingUp, Sparkles, 
+  Loader2, ChevronLeft, Settings 
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { parseDriveFileName } from "@/lib/utils/feed-parser";
+import { DESIGN_TOKENS } from "@/lib/design-tokens";
+
+const { colors } = DESIGN_TOKENS;
+
+// 파스텔 톤 컬러 정의
+const PASTEL_THEME = {
+  blue: "#E0F2FE",      // 파스텔 블루 배경
+  darkBlue: "#7DD3FC",  // 포인트 블루
+  softBeige: "#F5F5F4", // 소프트 베이지 (디자인 토큰 보완)
+  border: "#EEEBDE",    // 기존 테두리 컬러 유지
+  text: "#44403C"       // 부드러운 차콜 텍스트
+};
 
 interface FeedItem {
   id: string;
   photo_url: string;
-  nickname: string;
-  real_name: string;
   gender: string;
-  caption: string;
   target_user_id: string;
   like_count: number;
 }
@@ -53,7 +66,7 @@ export default function FeedDashboard() {
     if (!FOLDER_ID || !API_KEY) return;
     try {
       const [usersRes, likesRes, driveRes] = await Promise.all([
-        supabase.from("users").select("*"),
+        supabase.from("users").select("id, real_name, phone_suffix"),
         supabase.from("feed_likes").select("*"),
         fetch(`https://www.googleapis.com/drive/v3/files?q='${FOLDER_ID}'+in+parents+and+mimeType+contains+'image/'&fields=files(id,name)&key=${API_KEY}`)
       ]);
@@ -84,10 +97,7 @@ export default function FeedDashboard() {
           return {
             id: file.id,
             photo_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w800`,
-            nickname: matchedUser.nickname,
-            real_name: parsed.realName,
-            gender: parsed.gender || matchedUser.gender || "Unknown",
-            caption: parsed.caption || "",
+            gender: parsed.gender || "Unknown",
             target_user_id: String(matchedUser.id),
             like_count: likeCounts[file.id] || 0
           };
@@ -114,9 +124,8 @@ export default function FeedDashboard() {
     };
     init();
 
-    const channelName = `feed_admin_dashboard_${Date.now()}`;
     const channel = supabase
-      .channel(channelName)
+      .channel(`feed_admin_${Date.now()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "feed_likes" }, () => {
         fetchFeedData(sessionRef.current);
       })
@@ -126,7 +135,7 @@ export default function FeedDashboard() {
   }, [fetchFeedData]);
 
   const finalizeAndReleaseReport = async () => {
-    const isConfirm = confirm("📢 모든 매칭을 계산하고 리포트를 발행하시겠습니까?\n\n모든 유저의 화면이 리포트로 전환됩니다.");
+    const isConfirm = confirm("📢 모든 매칭을 계산하고 리포트를 발행하시겠습니까?");
     if (!isConfirm) return;
     setIsFinalizing(true);
     try {
@@ -136,9 +145,9 @@ export default function FeedDashboard() {
         body: JSON.stringify({ sessionId: currentSession })
       });
       const result = await response.json();
-      if (!result.success) throw new Error(result.error || 'Failed to finalize matches');
+      if (!result.success) throw new Error(result.error || 'Failed');
       await supabase.from("system_settings").update({ value: "true" }).eq("key", "is_report_open");
-      alert(`✅ 매칭 완료!`);
+      alert(`✅ 리포트 발행 완료!`);
     } catch (err: any) {
       alert("오류 발생: " + err.message);
     } finally {
@@ -147,118 +156,147 @@ export default function FeedDashboard() {
   };
 
   if (isLoading) {
-    return <main className="h-screen w-full bg-[#050505] flex items-center justify-center"><Loader2 className="text-pink-500 animate-spin" /></main>;
+    return <main className="h-screen w-full bg-[#FAF9F6] flex items-center justify-center"><Loader2 className="text-[#7DD3FC] animate-spin" /></main>;
   }
 
   return (
-    <main className="min-h-screen w-full bg-[#050505] text-[#E0E0E0] flex flex-col antialiased font-sans pb-10 overflow-x-hidden">
+    <main className="min-h-screen w-full bg-[#FAF9F6] text-[#44403C] antialiased flex flex-col font-serif pb-20 overflow-x-hidden">
       
-      <nav className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/5 w-full">
-        <div className="max-w-7xl mx-auto px-5 py-4 flex justify-between items-center">
+      {/* 1. Header Navigation */}
+      <nav className="h-[70px] border-b border-[#EEEBDE] px-6 md:px-10 flex justify-between items-center bg-white sticky top-0 z-50">
+        <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 cursor-pointer group" onClick={() => router.push("/admin")}>
-            <ChevronLeft size={18} className="text-white/30 group-hover:text-white transition-colors" />
-            <h1 className="text-[10px] md:text-sm font-black uppercase tracking-[0.2em] text-white">Popularity</h1>
+            <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+            <h1 className="text-xl italic font-black">Popularity</h1>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={finalizeAndReleaseReport}
-              disabled={isFinalizing}
-              className="px-3 md:px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800 rounded-full text-[9px] font-black uppercase flex items-center gap-1.5 transition-all active:scale-95"
-            >
-              {isFinalizing ? <Loader2 size={12} className="animate-spin" /> : <><Sparkles size={12} /> Finalize</>}
-            </button>
-            <button onClick={() => router.push("/admin/settings")} className="px-3 md:px-5 py-2 bg-white/5 border border-white/10 hover:bg-white/10 rounded-full text-[9px] font-black uppercase transition-all">Settings</button>
-          </div>
+          <span className="hidden sm:inline text-[9px] font-bold uppercase tracking-[0.4em] text-[#7DD3FC] bg-[#E0F2FE] px-3 py-1 rounded-full border border-[#7DD3FC]/20">Live Status</span>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <motion.button
+            onClick={finalizeAndReleaseReport}
+            disabled={isFinalizing}
+            className="px-4 py-2 bg-[#7DD3FC] text-white rounded-full text-[10px] font-sans font-black uppercase tracking-widest flex items-center gap-2 shadow-sm active:scale-95 disabled:opacity-50"
+            whileHover={{ scale: 1.05 }}
+          >
+            {isFinalizing ? <Loader2 size={12} className="animate-spin" /> : <><Sparkles size={12} /> Finalize Report</>}
+          </motion.button>
+          <button onClick={() => router.push("/admin/settings")} className="p-2.5 rounded-full border border-[#EEEBDE] hover:bg-[#F0EDE4] transition-all"><Settings size={18} /></button>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto w-full px-5">
-        <div className="py-6 flex gap-3 overflow-x-auto no-scrollbar justify-start md:justify-center items-center shrink-0">
+      <div className="max-w-7xl mx-auto w-full px-6 pt-10">
+        
+        {/* 2. Stats Section */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 font-sans">
           {[
-            { label: "Photos", value: feedItems.length, icon: Users },
-            { label: "Total Likes", value: totalLikes, icon: Heart },
-            { label: "Top Score", value: feedItems[0]?.like_count || 0, icon: TrendingUp }
+            { label: "Total Photos", value: feedItems.length, icon: Users, color: "#44403C" },
+            { label: "Total Hearts", value: totalLikes, icon: Heart, color: "#7DD3FC" },
+            { label: "Top Score", value: feedItems[0]?.like_count || 0, icon: Trophy, color: "#B19470" }
           ].map((stat, i) => (
-            <div key={i} className="bg-[#111] border border-white/5 rounded-2xl p-4 flex items-center gap-3 min-w-[120px] md:min-w-[180px] flex-1 md:flex-none">
-              <stat.icon className="text-pink-500 shrink-0" size={16} />
+            <div key={i} className="bg-white border border-[#EEEBDE] rounded-[2rem] p-6 flex items-center gap-5 shadow-sm">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[#FAF9F6] border border-[#EEEBDE]" style={{ color: stat.color }}>
+                <stat.icon size={20} fill={stat.label === "Total Hearts" ? "currentColor" : "none"} />
+              </div>
               <div>
-                <p className="text-[8px] text-white/30 uppercase font-bold leading-none mb-1">{stat.label}</p>
-                <p className="text-lg font-black text-white leading-none">{stat.value}</p>
+                <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest mb-1">{stat.label}</p>
+                <p className="text-2xl font-bold tracking-tight">{stat.value}</p>
               </div>
             </div>
           ))}
         </div>
 
-        {/* 성별 필터: 모바일 중앙 / PC 우측 정렬 */}
-        <div className="mb-8 flex gap-2 justify-center md:justify-end items-center w-full">
-          {[
-            { id: "all", label: "전체", count: feedItems.length, color: "bg-white text-black" },
-            { id: "F", label: "여성", count: femaleItems.length, color: "bg-pink-500 text-white shadow-[0_0_15px_rgba(236,72,153,0.3)]" },
-            { id: "M", label: "남성", count: maleItems.length, color: "bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]" }
-          ].map((btn) => (
-            <button
-              key={btn.id}
-              onClick={() => setGenderFilter(btn.id as any)}
-              className={`flex-1 md:flex-none md:w-32 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                genderFilter === btn.id ? btn.color : "bg-white/5 text-white/50 hover:bg-white/10"
-              }`}
-            >
-              {btn.label} <span className="opacity-50 ml-1">{btn.count}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="bg-[#111] rounded-[2rem] md:rounded-[3rem] p-5 md:p-10 border border-white/5 min-h-[500px] shadow-inner mb-10">
-          <div className="flex justify-between items-center mb-8 px-2">
-            <h3 className="text-[10px] md:text-xs font-black text-pink-500 uppercase tracking-[0.3em] flex items-center gap-2">
-              <Trophy size={14} className="animate-bounce" /> Ranking Popularity
+        {/* 3. Ranking List */}
+        <div className="bg-white rounded-[2.5rem] p-8 md:p-12 border border-[#EEEBDE] shadow-sm mb-10">
+          
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-12">
+            <h3 className="text-lg italic font-bold flex items-center gap-3">
+              <Trophy size={24} className="text-[#7DD3FC]" /> Real-time Ranking
             </h3>
-            <div className="flex items-center gap-1.5 bg-green-500/10 px-3 py-1.5 rounded-full border border-green-500/20">
-              <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-[8px] font-black text-green-500 uppercase tracking-tighter">Live Sync</span>
+            
+            {/* Filter Buttons */}
+            <div className="flex bg-[#F5F5F4] p-1.5 rounded-2xl gap-1 font-sans">
+              {[
+                { id: "all", label: "All" },
+                { id: "F", label: "Female" },
+                { id: "M", label: "Male" }
+              ].map((btn) => (
+                <button
+                  key={btn.id}
+                  onClick={() => setGenderFilter(btn.id as any)}
+                  className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    genderFilter === btn.id ? "bg-white text-black shadow-sm" : "text-gray-400 hover:text-gray-600"
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6 justify-items-center">
-            {filteredItems.map((item, idx) => {
-              const isFemale = isFemaleGender(item.gender);
-              return (
-                <div
-                  key={item.id}
-                  className={`relative group rounded-2xl overflow-hidden border transition-all duration-700 w-full max-w-[220px] ${
-                    idx === 0
-                      ? isFemale ? 'border-pink-500/50 shadow-[0_0_20px_rgba(236,72,153,0.2)]' : 'border-blue-500/50 shadow-[0_0_20px_rgba(59,130,246,0.2)]'
-                      : 'border-white/5 hover:border-white/20'
-                  }`}
-                >
-                  <div className={`absolute top-2.5 left-2.5 z-20 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black shadow-lg ${
-                    idx === 0 ? (isFemale ? 'bg-pink-500' : 'bg-blue-500') : 'bg-black/70 backdrop-blur-md text-white/50 border border-white/10'
-                  } text-white`}>
-                    {idx + 1}
-                  </div>
-
-                  <div className="aspect-square w-full bg-black/40 relative">
-                    <img src={item.photo_url} alt="Participant" className="w-full h-full object-cover opacity-90 transition-transform duration-700 group-hover:scale-110" />
-                    <div className={`absolute top-2.5 right-2.5 z-20 px-2 py-1 rounded-md text-[8px] font-black text-white shadow-sm backdrop-blur-sm ${isFemale ? 'bg-pink-500/70' : 'bg-blue-500/70'}`}>
-                      {isFemale ? 'FEMALE' : 'MALE'}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 justify-items-center">
+            <AnimatePresence mode="popLayout">
+              {filteredItems.map((item, idx) => {
+                const isFemale = isFemaleGender(item.gender);
+                return (
+                  <motion.div
+                    layout
+                    key={item.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="relative group w-full"
+                  >
+                    {/* Rank Badge */}
+                    <div className={`absolute -top-3 -left-3 z-20 w-9 h-9 rounded-full flex items-center justify-center text-xs font-black shadow-xl font-sans ${
+                      idx === 0 ? 'bg-[#7DD3FC] text-white' : idx === 1 ? 'bg-[#B19470] text-white' : 'bg-white border border-[#EEEBDE] text-gray-400'
+                    }`}>
+                      {idx + 1}
                     </div>
-                  </div>
 
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[9px] font-bold text-white/30 italic truncate">Anonymous Participant</p>
-                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg ${isFemale ? 'bg-pink-500/90' : 'bg-blue-500/90'}`}>
-                        <Heart size={10} fill="white" className="text-white" />
-                        <span className="text-[11px] font-black text-white">{item.like_count}</span>
+                    {/* Image Card - 닉네임 정보 제거 */}
+                    <div className="aspect-[3/4] w-full bg-[#FAF9F6] rounded-[2rem] overflow-hidden border border-[#EEEBDE] relative shadow-sm group-hover:shadow-md transition-all duration-500">
+                      <img 
+                        src={item.photo_url} 
+                        alt="Participant" 
+                        className="w-full h-full object-cover opacity-95 group-hover:scale-105 transition-transform duration-700" 
+                      />
+                      
+                      {/* Gender Badge */}
+                      <div className={`absolute top-4 right-4 z-20 px-2.5 py-1 rounded-full text-[8px] font-black text-white shadow-sm font-sans ${
+                        isFemale ? 'bg-pink-300' : 'bg-blue-300'
+                      }`}>
+                        {isFemale ? 'FEMALE' : 'MALE'}
+                      </div>
+
+                      {/* Info Overlay - 닉네임 삭제 */}
+                      <div className="absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-t from-white/90 via-white/40 to-transparent">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-sm font-sans bg-white/80 border border-[#EEEBDE] ${
+                            isFemale ? 'text-pink-400' : 'text-blue-400'
+                          }`}>
+                            <Heart size={10} fill="currentColor" />
+                            <span className="text-[11px] font-black">{item.like_count}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
+
+          {filteredItems.length === 0 && (
+            <div className="py-20 text-center text-gray-300 italic">No matching records found.</div>
+          )}
         </div>
       </div>
+
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #EEEBDE; border-radius: 10px; }
+      `}</style>
     </main>
   );
 }
