@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart } from "lucide-react"; // 하트 아이콘 추가
+import { Heart, Trophy, ChevronDown, ChevronUp, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { usePhaseRedirect } from "@/lib/hooks/usePhaseRedirect";
@@ -18,6 +18,10 @@ export default function AuctionPage() {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [bidAmount, setBidAmount] = useState<string>("");
+  const [myBids, setMyBids] = useState<any[]>([]);
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [countdown, setCountdown] = useState(3);
 
   const minBidAmount = activeItem ? activeItem.current_bid + 100 : 100;
   const bidAmountNum = parseInt(bidAmount, 10) || 0;
@@ -29,37 +33,70 @@ export default function AuctionPage() {
 
     const userId = JSON.parse(stored).id;
 
-    const { data: itemsData } = await supabase
-      .from("auction_items")
-      .select("*")
-      .order("created_at", { ascending: true }); // 생성 순으로 정렬
+    const [itemsRes, userRes, bidsRes] = await Promise.all([
+      supabase
+        .from("auction_items")
+        .select("*")
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("users")
+        .select("*")
+        .eq("id", userId)
+        .single(),
+      supabase
+        .from("bids")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true })
+    ]);
 
-    if (itemsData) {
-      setAllItems(itemsData);
-      // [중요] 관리자 대시보드 상태값인 'progress'와 일치시킴
-      const active = itemsData.find(i => i.status === "progress");
+    if (itemsRes.data) {
+      setAllItems(itemsRes.data);
+      const active = itemsRes.data.find(i => i.status === "active");
       setActiveItem(active || null);
     }
 
-    const { data: userData } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", userId)
-      .single();
+    if (userRes.data) {
+      setUser(userRes.data);
+      localStorage.setItem("auction_user", JSON.stringify(userRes.data));
+    }
 
-    if (userData) {
-      setUser(userData);
-      localStorage.setItem("auction_user", JSON.stringify(userData));
+    if (bidsRes.data) {
+      setMyBids(bidsRes.data);
     }
   }, []);
+
+  // 피드 열림 시 카운트다운 팝업 표시
+  const handleFeedOpened = useCallback(() => {
+    if (!showEndModal) {
+      setShowEndModal(true);
+      setCountdown(3);
+    }
+  }, [showEndModal]);
 
   usePhaseRedirect({
     currentPage: "auction",
     onSettingsFetched: () => { fetchAuctionData(); },
     onAuctionItemsChange: () => { fetchAuctionData(); },
     onBidsChange: () => { fetchAuctionData(); },
-    onUsersChange: () => { fetchAuctionData(); }
+    onUsersChange: () => { fetchAuctionData(); },
+    onFeedOpened: handleFeedOpened
   });
+
+  // 카운트다운 로직
+  useEffect(() => {
+    if (!showEndModal) return;
+
+    if (countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(prev => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else {
+      // 카운트다운 종료 시 피드로 이동
+      window.location.href = "/feed";
+    }
+  }, [showEndModal, countdown]);
 
   useEffect(() => {
     const stored = localStorage.getItem("auction_user");
@@ -84,14 +121,45 @@ export default function AuctionPage() {
       })
       .subscribe();
 
+    // Realtime이 비활성화된 경우를 대비한 폴링 (2초마다)
+    const pollInterval = setInterval(() => {
+      fetchAuctionData();
+    }, 2000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
   }, [fetchAuctionData]);
 
   const closeIntroModal = () => {
     setShowModal(false);
     sessionStorage.setItem("has_seen_modal", "true");
+  };
+
+  const toggleItemExpand = (itemId: number) => {
+    setExpandedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  // 내가 비딩한 아이템들 (finished 상태만)
+  const myBiddedItems = allItems.filter(item =>
+    item.status === "finished" && myBids.some(bid => bid.auction_item_id === item.id)
+  );
+
+  // 아이템별 비딩 통계 계산
+  const getItemBidStats = (itemId: number) => {
+    const itemBids = myBids.filter(bid => bid.auction_item_id === itemId);
+    const totalAmount = itemBids.reduce((sum, bid) => sum + bid.amount, 0);
+    const maxAmount = itemBids.length > 0 ? Math.max(...itemBids.map(bid => bid.amount)) : 0;
+    return { itemBids, totalAmount, maxAmount, count: itemBids.length };
   };
 
   const handleBid = async () => {
@@ -178,28 +246,147 @@ export default function AuctionPage() {
         </motion.header>
 
         <div className="flex flex-col lg:flex-row gap-12 items-start">
-          <motion.aside className="w-full lg:w-1/3 order-2 lg:order-1 lg:sticky lg:top-32">
+          <motion.aside className="w-full lg:w-1/3 order-2 lg:order-1 lg:sticky lg:top-32 space-y-6">
+            {/* 나의 비딩 내역 */}
+            {myBiddedItems.length > 0 && (
+              <div className="p-6" style={{ backgroundColor: `${colors.paper}`, borderRadius: "2.5rem", border: `1px solid ${colors.soft}` }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Trophy size={16} style={{ color: colors.accent }} />
+                  <h3 className="text-[11px] font-sans font-black uppercase tracking-[0.2em] italic" style={{ color: colors.accent }}>나의 비딩 내역</h3>
+                </div>
+                <div className="space-y-3">
+                  {myBiddedItems.map((item) => {
+                    const stats = getItemBidStats(item.id);
+                    const isWinner = item.highest_bidder_id === user?.id;
+                    const isExpanded = expandedItems.has(item.id);
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-2xl overflow-hidden"
+                        style={{
+                          backgroundColor: isWinner ? `${colors.accent}10` : '#fff',
+                          border: `1px solid ${isWinner ? colors.accent + '40' : colors.soft}`
+                        }}
+                      >
+                        {/* 메인 정보 */}
+                        <div className="p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-bold">{item.title}</span>
+                            <span
+                              className="text-[9px] font-black px-2 py-1 rounded-full"
+                              style={{
+                                backgroundColor: isWinner ? colors.accent : '#9CA3AF',
+                                color: 'white'
+                              }}
+                            >
+                              {isWinner ? '낙찰 성공' : '낙찰 실패'}
+                            </span>
+                          </div>
+
+                          <div className="flex gap-4 text-[11px] font-sans mb-3">
+                            <div>
+                              <span style={{ color: colors.muted }}>누적 비딩 </span>
+                              <span className="font-bold">{stats.totalAmount.toLocaleString()}만</span>
+                            </div>
+                            <div>
+                              <span style={{ color: colors.muted }}>최대 비딩 </span>
+                              <span className="font-bold" style={{ color: colors.accent }}>{stats.maxAmount.toLocaleString()}만</span>
+                            </div>
+                          </div>
+
+                          {/* 토글 버튼 */}
+                          <button
+                            onClick={() => toggleItemExpand(item.id)}
+                            className="flex items-center gap-1 text-[10px] font-bold transition-colors"
+                            style={{ color: colors.muted }}
+                          >
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            비딩 내역 {isExpanded ? '접기' : '보기'} ({stats.count}회)
+                          </button>
+                        </div>
+
+                        {/* 비딩 상세 내역 */}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="px-4 pb-4 pt-2 border-t" style={{ borderColor: colors.soft }}>
+                                <div className="space-y-2">
+                                  {stats.itemBids.map((bid, idx) => (
+                                    <div
+                                      key={bid.id}
+                                      className="flex justify-between items-center text-[11px] font-sans py-1"
+                                    >
+                                      <span style={{ color: colors.muted }}>{idx + 1}회차 비딩</span>
+                                      <span className="font-bold">{bid.amount.toLocaleString()}만원</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 요약 */}
+                <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: colors.soft }}>
+                  <div className="flex justify-between items-center text-[11px] font-sans">
+                    <span style={{ color: colors.muted }}>낙찰 성공</span>
+                    <span className="font-bold" style={{ color: colors.accent }}>
+                      {myBiddedItems.filter(item => item.highest_bidder_id === user?.id).length}건
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-[11px] font-sans">
+                    <span style={{ color: colors.muted }}>낙찰 실패</span>
+                    <span className="font-bold" style={{ color: '#9CA3AF' }}>
+                      {myBiddedItems.filter(item => item.highest_bidder_id !== user?.id).length}건
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 가치관 경매 현황 */}
             <div className="p-8" style={{ backgroundColor: `${colors.paper}50`, borderRadius: "2.5rem", border: `1px solid ${colors.soft}` }}>
               <h3 className="text-[11px] font-sans font-black mb-6 uppercase tracking-[0.2em] italic" style={{ color: colors.muted }}>가치관 경매 현황</h3>
               <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                {allItems.map((item, idx) => (
-                  <motion.div
-                    key={item.id}
-                    className={`flex justify-between items-center p-4 rounded-2xl border transition-all ${
-                      item.status === "progress" ? "shadow-sm" : item.status === "finished" ? "opacity-40" : ""
-                    }`}
-                    style={{
-                      backgroundColor: item.status === "progress" ? `${colors.accent}08` : item.status === "finished" ? colors.paper : "white",
-                      borderColor: item.status === "progress" ? `${colors.accent}20` : "transparent"
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-1.5 h-1.5 rounded-full ${item.status === "progress" ? "animate-pulse" : ""}`} style={{ backgroundColor: item.status === "progress" ? colors.accent : colors.soft }} />
-                      <span className={`text-sm font-medium ${item.status === "finished" ? "line-through" : ""}`}>{item.title}</span>
-                    </div>
-                    <span className="text-[11px] font-sans font-bold" style={{ color: colors.muted }}>{item.current_bid.toLocaleString()}만</span>
-                  </motion.div>
-                ))}
+                {allItems.map((item, idx) => {
+                  const isMyWin = item.status === "finished" && item.highest_bidder_id === user?.id;
+                  return (
+                    <motion.div
+                      key={item.id}
+                      className={`flex justify-between items-center p-4 rounded-2xl border transition-all ${
+                        item.status === "active" ? "shadow-sm" : item.status === "finished" && !isMyWin ? "opacity-40" : ""
+                      }`}
+                      style={{
+                        backgroundColor: isMyWin ? `${colors.accent}15` : item.status === "active" ? `${colors.accent}08` : item.status === "finished" ? colors.paper : "white",
+                        borderColor: isMyWin ? colors.accent : item.status === "active" ? `${colors.accent}20` : "transparent"
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isMyWin ? (
+                          <Trophy size={14} style={{ color: colors.accent }} />
+                        ) : (
+                          <div className={`w-1.5 h-1.5 rounded-full ${item.status === "active" ? "animate-pulse" : ""}`} style={{ backgroundColor: item.status === "active" ? colors.accent : colors.soft }} />
+                        )}
+                        <span className={`text-sm font-medium ${item.status === "finished" && !isMyWin ? "line-through" : ""}`}>{item.title}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isMyWin && <span className="text-[9px] font-black px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.accent, color: 'white' }}>낙찰</span>}
+                        <span className="text-[11px] font-sans font-bold" style={{ color: isMyWin ? colors.accent : colors.muted }}>{item.current_bid.toLocaleString()}만</span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             </div>
           </motion.aside>
@@ -251,6 +438,7 @@ export default function AuctionPage() {
         </div>
       </div>
 
+      {/* 경매 안내 모달 */}
       <AnimatePresence>
         {showModal && (
           <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-md" style={{ backgroundColor: `${colors.primary}80` }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -262,6 +450,66 @@ export default function AuctionPage() {
                 <p>• 입찰 성공 시 자산이 <span className="font-bold underline" style={{ color: colors.primary }}>즉시 차감</span>됩니다.</p>
               </div>
               <button onClick={closeIntroModal} className="w-full text-white py-5 rounded-2xl text-xs font-bold tracking-[0.2em] uppercase" style={{ backgroundColor: colors.primary }}>확인했습니다</button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 경매 종료 카운트다운 모달 */}
+      <AnimatePresence>
+        {showEndModal && (
+          <motion.div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-lg"
+            style={{ backgroundColor: `${colors.primary}95` }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="text-center"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <motion.div
+                className="mb-8"
+                initial={{ y: -20 }}
+                animate={{ y: 0 }}
+              >
+                <Heart size={60} fill={colors.accent} color={colors.accent} className="mx-auto mb-6" />
+                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 italic">
+                  경매가 종료되었습니다
+                </h2>
+                <p className="text-white/70 text-sm font-sans">
+                  잠시 후 피드 페이지로 이동합니다
+                </p>
+              </motion.div>
+
+              <motion.div
+                key={countdown}
+                initial={{ scale: 1.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="text-8xl md:text-9xl font-black text-white"
+                style={{ textShadow: `0 0 60px ${colors.accent}` }}
+              >
+                {countdown}
+              </motion.div>
+
+              <motion.div
+                className="mt-8 flex justify-center gap-2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.3 }}
+              >
+                {[3, 2, 1].map((num) => (
+                  <div
+                    key={num}
+                    className="w-3 h-3 rounded-full transition-all duration-300"
+                    style={{
+                      backgroundColor: countdown >= num ? colors.accent : 'rgba(255,255,255,0.3)'
+                    }}
+                  />
+                ))}
+              </motion.div>
             </motion.div>
           </motion.div>
         )}

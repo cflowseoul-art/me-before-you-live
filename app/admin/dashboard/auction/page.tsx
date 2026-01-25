@@ -66,6 +66,28 @@ export default function AuctionDashboard() {
     await supabase.from("auction_items").update({ status: 'pending' }).eq('id', itemId);
   };
 
+  const handleOpenFeed = async () => {
+    if (!confirm("피드 단계로 전환하시겠습니까?\n유저들에게 경매 종료 안내 후 피드 페이지로 이동합니다.")) return;
+
+    try {
+      const res = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: 'feed' })
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        router.push("/admin/dashboard/feed");
+      } else {
+        alert("단계 전환 중 오류가 발생했습니다.");
+      }
+    } catch (err) {
+      console.error("Phase change error:", err);
+      alert("서버 오류가 발생했습니다.");
+    }
+  };
+
   const handleResetAuction = async () => {
     if (!confirm("경매를 초기화하시겠습니까?\n- 모든 입찰 내역 삭제\n- 모든 아이템 pending 상태로\n- 참가자 잔액 1000만원으로 복구")) return;
 
@@ -89,7 +111,16 @@ export default function AuctionDashboard() {
   useEffect(() => {
     fetchLive();
     const channel = supabase.channel("admin_auction_dashboard").on("postgres_changes", { event: "*", schema: "public" }, fetchLive).subscribe();
-    return () => { supabase.removeChannel(channel); };
+
+    // Realtime이 비활성화된 경우를 대비한 폴링 (2초마다)
+    const pollInterval = setInterval(() => {
+      fetchLive();
+    }, 2000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
   }, [fetchLive]);
 
   const activeItem = items.find(i => i.status === 'active');
@@ -105,13 +136,13 @@ export default function AuctionDashboard() {
           <span className="hidden sm:inline text-[8px] md:text-[9px] font-bold uppercase tracking-[0.2em] md:tracking-[0.4em] text-[#A52A2A] bg-[#FDF8F8] px-2 md:px-3 py-1 rounded-full border border-[#A52A2A]/10">Admin</span>
         </div>
         <div className="flex items-center gap-1 md:gap-2">
-          {/* [수정] 하트 버튼: 초기화 로직 제거 및 피드 대시보드 다이렉션으로 변경 */}
-          <motion.button 
-            onClick={() => router.push("/admin/dashboard/feed")} 
+          {/* 하트 버튼: 피드 단계로 전환 (유저들에게 경매 종료 알림) */}
+          <motion.button
+            onClick={handleOpenFeed}
             className="p-2 md:p-2.5 rounded-full border border-pink-200 hover:bg-pink-50 text-pink-500 transition-all shadow-sm"
             whileHover={{ scale: 1.1, rotate: 5 }}
             whileTap={{ scale: 0.9 }}
-            title="피드 대시보드"
+            title="피드 단계로 전환"
           >
             <Heart size={14} className="md:w-4 md:h-4" fill="currentColor" />
           </motion.button>

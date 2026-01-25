@@ -29,6 +29,8 @@ interface UsePhaseRedirectOptions {
   onBidsChange?: () => void;
   /** Custom callback for users changes (only for auction page) */
   onUsersChange?: () => void;
+  /** Custom callback when feed opens (prevents auto redirect if provided) */
+  onFeedOpened?: () => void;
 }
 
 /**
@@ -37,7 +39,7 @@ interface UsePhaseRedirectOptions {
  * All values are treated as TEXT type (string comparison)
  */
 export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
-  const { currentPage, onSettingsFetched, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange } = options;
+  const { currentPage, onSettingsFetched, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened } = options;
 
   // Get user ID from localStorage
   const getUserId = useCallback((): string | null => {
@@ -70,6 +72,12 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
           return true;
         }
         if (isFeedOpen) {
+          // If custom handler provided, call it instead of auto redirect
+          if (onFeedOpened) {
+            console.log("📸 Feed opened - calling custom handler");
+            onFeedOpened();
+            return true;
+          }
           console.log("📸 Redirecting to feed from auction");
           window.location.href = "/feed";
           return true;
@@ -106,7 +114,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
     }
 
     return false;
-  }, [currentPage, getUserId]);
+  }, [currentPage, getUserId, onFeedOpened]);
 
   // Fetch initial settings and check for redirect
   const fetchAndCheckSettings = useCallback(async (retryCount = 0): Promise<SystemSettings | null> => {
@@ -199,8 +207,14 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
           }
         } else if (key === "is_feed_open") {
           if (stringValue === "true" && currentPage === "auction") {
-            console.log("📸 Feed opened - redirecting to feed");
-            window.location.href = "/feed";
+            // If custom handler provided, call it instead of auto redirect
+            if (onFeedOpened) {
+              console.log("📸 Feed opened - calling custom handler");
+              onFeedOpened();
+            } else {
+              console.log("📸 Feed opened - redirecting to feed");
+              window.location.href = "/feed";
+            }
           } else if (stringValue === "false" && currentPage === "feed") {
             console.log("🔙 Feed closed - redirecting to auction");
             window.location.href = "/auction";
@@ -267,7 +281,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
       console.log(`🔌 [${currentPage}] Unsubscribing from Realtime`);
       supabase.removeChannel(channel);
     };
-  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange]);
+  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened]);
 
   return { fetchAndCheckSettings, getUserId };
 }
