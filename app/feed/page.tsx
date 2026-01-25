@@ -3,9 +3,12 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePhaseRedirect } from "@/lib/hooks/usePhaseRedirect";
-import { Heart, X, Sparkles } from "lucide-react";
+import { Heart, X, Sparkles, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { parseDriveFileName } from "@/lib/utils/feed-parser";
+
+// 하트 최대 개수 제한 (1on1-spec.md 기준)
+const MAX_HEARTS = 5;
 
 interface FeedItem {
   id: string;
@@ -38,6 +41,9 @@ export default function FeedPage() {
   const isSyncing = useRef<Record<string, boolean>>({});
   const [showReportModal, setShowReportModal] = useState(false);
 
+  // 하트 제한 경고 모달
+  const [showHeartLimitWarning, setShowHeartLimitWarning] = useState(false);
+
   const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_API_KEY;
   const FOLDER_ID = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID;
 
@@ -53,12 +59,12 @@ export default function FeedPage() {
 
   const fetchFeedData = useCallback(async (session: string) => {
     if (!session || !FOLDER_ID || !API_KEY) return;
-    
+
     try {
       setIsLoading(true);
       const [usersRes, likesRes] = await Promise.all([
         supabase.from("users").select("*"),
-        supabase.from("feed_likes").select("user_id, target_user_id, photo_id") 
+        supabase.from("feed_likes").select("user_id, target_user_id, photo_id")
       ]);
 
       const driveRes = await fetch(
@@ -71,8 +77,8 @@ export default function FeedPage() {
           const info = parseDriveFileName(file.name);
           if (!info || info.session !== session) return null;
 
-          const matchedUser = usersRes.data?.find(u => 
-            String(u.real_name).trim() === info.realName && 
+          const matchedUser = usersRes.data?.find(u =>
+            String(u.real_name).trim() === info.realName &&
             String(u.phone_suffix).trim() === info.phoneSuffix
           );
 
@@ -92,7 +98,7 @@ export default function FeedPage() {
 
       setFeedItems(matchedItems);
       setLikes(likesRes.data || []);
-      
+
       if (shuffledRawItems.length === 0) {
         setShuffledRawItems([...matchedItems].sort(() => Math.random() - 0.5));
       }
@@ -103,13 +109,13 @@ export default function FeedPage() {
     }
   }, [currentUser?.id, API_KEY, FOLDER_ID, shuffledRawItems.length]);
 
-  // 리포트 열림 시 로딩 표시 후 바로 이동
+  // 리포트 열림 시 로딩 표시 후 바로 이동 (브릿지 삭제 - 직접 report 페이지로)
   const handleReportOpened = useCallback(() => {
     if (!showReportModal && currentUser?.id) {
       setShowReportModal(true);
-      // 잠깐 로딩 표시 후 이동
+      // 브릿지(loading) 페이지 거치지 않고 바로 report 페이지로 이동
       setTimeout(() => {
-        window.location.href = `/1on1/loading/${currentUser.id}`;
+        window.location.href = `/1on1/report/${currentUser.id}`;
       }, 1500);
     }
   }, [showReportModal, currentUser?.id]);
@@ -176,7 +182,24 @@ export default function FeedPage() {
     return checkIfLiked(photoId) ? othersCount + 1 : othersCount;
   };
 
-  // [핵심] 좋아요 처리 로직: 본인 및 같은 성별 차단
+  // 현재 사용자가 보낸 하트 개수 계산
+  const getMyHeartCount = useCallback(() => {
+    if (!currentUser?.id) return 0;
+
+    // optimistic 상태 반영
+    let count = likes.filter(l => String(l.user_id) === String(currentUser.id)).length;
+
+    // optimistic 상태에서 추가/삭제된 것 반영
+    Object.entries(optimisticStatus).forEach(([photoId, isLiked]) => {
+      const wasLiked = likes.some(l => String(l.user_id) === String(currentUser.id) && String(l.photo_id) === String(photoId));
+      if (isLiked && !wasLiked) count++;
+      if (!isLiked && wasLiked) count--;
+    });
+
+    return count;
+  }, [currentUser?.id, likes, optimisticStatus]);
+
+  // [핵심] 좋아요 처리 로직: 본인 및 같은 성별 차단 + 5개 제한
   const handleLike = async (item: FeedItem) => {
     if (!currentUser) return;
 
@@ -191,13 +214,23 @@ export default function FeedPage() {
     const targetGender = String(item.gender || "").substring(0, 1);
 
     if (userGender === targetGender) {
-      alert("이성 참가자의 사진에만 하트를 누를 수 있습니다! ❤️");
+      alert("이성 참가자의 사진에만 하트를 누를 수 있습니다!");
       return;
+    }
+
+    const currentlyLiked = checkIfLiked(item.id);
+
+    // 3. 하트 5개 제한 체크 (좋아요 추가 시에만)
+    if (!currentlyLiked) {
+      const currentHeartCount = getMyHeartCount();
+      if (currentHeartCount >= MAX_HEARTS) {
+        setShowHeartLimitWarning(true);
+        return;
+      }
     }
 
     if (isSyncing.current[item.id]) return;
 
-    const currentlyLiked = checkIfLiked(item.id);
     const nextStatus = !currentlyLiked;
 
     isSyncing.current[item.id] = true;
@@ -226,13 +259,26 @@ export default function FeedPage() {
 
   if (isLoading && feedItems.length === 0) return <div className="min-h-screen flex items-center justify-center bg-[#FDFDFD] font-serif italic text-gray-400">Loading Gallery...</div>;
 
+  const myHeartCount = getMyHeartCount();
+
   return (
     <div className="min-h-screen bg-[#FDFDFD] text-[#1A1A1A] font-serif pb-24 select-none">
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-[#EEEBDE] px-5 py-4">
         <div className="max-w-xl mx-auto flex flex-col gap-4">
           <div className="flex justify-between items-center">
             <h1 className="text-2xl italic font-bold">The Gallery</h1>
-            <div className="bg-[#FDF8F8] px-3 py-1 rounded-full text-[10px] text-[#A52A2A] font-black uppercase tracking-widest border border-[#A52A2A]/5">{displayItems.length} Photos</div>
+            <div className="flex items-center gap-3">
+              {/* 하트 카운터 */}
+              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                myHeartCount >= MAX_HEARTS
+                  ? 'bg-rose-50 border-rose-200 text-rose-500'
+                  : 'bg-pink-50 border-pink-200 text-pink-500'
+              }`}>
+                <Heart size={12} fill={myHeartCount > 0 ? "currentColor" : "none"} />
+                <span>{myHeartCount}/{MAX_HEARTS}</span>
+              </div>
+              <div className="bg-[#FDF8F8] px-3 py-1 rounded-full text-[10px] text-[#A52A2A] font-black uppercase tracking-widest border border-[#A52A2A]/5">{displayItems.length} Photos</div>
+            </div>
           </div>
           <div className="flex gap-2 justify-center">
             {["all", "male", "female"].map((f: any) => (
@@ -267,7 +313,13 @@ export default function FeedPage() {
                   <Heart size={38} fill={checkIfLiked(selectedItem.id) ? "#FF3B30" : "none"} className={checkIfLiked(selectedItem.id) ? "text-[#FF3B30]" : "text-gray-300"} />
                   <span className="font-sans font-black text-3xl">{getLikeCount(selectedItem.id)}</span>
                 </div>
-                <span className="text-[10px] font-sans font-black text-gray-300 uppercase tracking-widest">{selectedItem.gender}</span>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-[10px] font-sans font-black text-gray-300 uppercase tracking-widest">{selectedItem.gender}</span>
+                  {/* 남은 하트 표시 */}
+                  <span className={`text-[9px] font-sans font-bold ${myHeartCount >= MAX_HEARTS ? 'text-rose-400' : 'text-pink-400'}`}>
+                    {MAX_HEARTS - myHeartCount}개 남음
+                  </span>
+                </div>
               </div>
               {selectedItem.caption && (
                 <div className="py-6 border-y border-gray-50 text-center italic text-gray-600 text-[13px] break-keep">
@@ -278,6 +330,84 @@ export default function FeedPage() {
           </div>
         </div>
       )}
+
+      {/* 하트 제한 경고 모달 */}
+      <AnimatePresence>
+        {showHeartLimitWarning && (
+          <motion.div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-lg"
+            style={{ backgroundColor: "rgba(0, 0, 0, 0.7)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowHeartLimitWarning(false)}
+          >
+            <motion.div
+              className="bg-white rounded-[2rem] max-w-sm w-full p-8 shadow-2xl"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="text-center">
+                {/* 아이콘 */}
+                <motion.div
+                  className="w-16 h-16 mx-auto mb-6 bg-rose-100 rounded-full flex items-center justify-center"
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  <AlertTriangle size={32} className="text-rose-500" />
+                </motion.div>
+
+                {/* 제목 */}
+                <h3 className="text-xl font-bold mb-3 text-gray-800">
+                  하트를 모두 사용했어요!
+                </h3>
+
+                {/* 설명 */}
+                <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                  최대 <span className="font-bold text-rose-500">{MAX_HEARTS}개</span>의 하트만 보낼 수 있어요.<br />
+                  더 마음에 드는 분이 있다면<br />
+                  기존 하트를 취소하고 다시 선택해주세요.
+                </p>
+
+                {/* 하트 시각화 */}
+                <div className="flex justify-center gap-2 mb-6">
+                  {[...Array(MAX_HEARTS)].map((_, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ delay: i * 0.1 }}
+                    >
+                      <Heart
+                        size={24}
+                        fill="#f43f5e"
+                        className="text-rose-500"
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* 팁 */}
+                <div className="bg-gray-50 rounded-xl p-4 mb-6">
+                  <p className="text-xs text-gray-500">
+                    <span className="font-bold text-gray-700">Tip:</span> 신중하게 선택한 하트일수록 매칭 점수에 더 큰 영향을 줍니다!
+                  </p>
+                </div>
+
+                {/* 버튼 */}
+                <button
+                  onClick={() => setShowHeartLimitWarning(false)}
+                  className="w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-full font-bold text-sm uppercase tracking-widest shadow-lg shadow-rose-200 active:scale-95 transition-transform"
+                >
+                  확인
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 리포트 발행 로딩 모달 */}
       <AnimatePresence>

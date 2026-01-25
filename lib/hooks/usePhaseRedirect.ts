@@ -70,7 +70,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
         // From auction: report takes priority, then feed
         if (isReportOpen && userId) {
           console.log("🏁 Redirecting to report from auction");
-          window.location.href = `/1on1/loading/${userId}`;
+          window.location.href = `/1on1/report/${userId}`;
           return true;
         }
         if (isFeedOpen) {
@@ -96,7 +96,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
             return true;
           }
           console.log("🏁 Redirecting to report from feed");
-          window.location.href = `/1on1/loading/${userId}`;
+          window.location.href = `/1on1/report/${userId}`;
           return true;
         }
         if (!isFeedOpen) {
@@ -213,7 +213,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
               onReportOpened();
             } else {
               console.log("🏁 Report opened - redirecting to report");
-              window.location.href = `/1on1/loading/${userId}`;
+              window.location.href = `/1on1/report/${userId}`;
             }
           } else if (stringValue === "false" && currentPage === "report") {
             console.log("🔄 Report closed - checking where to redirect");
