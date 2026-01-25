@@ -1,103 +1,204 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { Heart, ChevronLeft, Trophy, Loader2, Users, Settings, AlertCircle } from "lucide-react";
-import { DESIGN_TOKENS } from "@/lib/design-tokens";
-
-const { colors } = DESIGN_TOKENS;
-
-const PASTEL_THEME = {
-  blue: "#E0F2FE",      
-  darkBlue: "#7DD3FC",  
-  softBeige: "#F5F5F4", 
-  border: "#EEEBDE",    
-  text: "#44403C"       
-};
-
-interface MatchResult {
-  id: string;
-  user1_nickname: string;
-  user1_name: string;
-  user1_suffix: string;
-  user2_nickname: string;
-  user2_name: string;
-  user2_suffix: string;
-  user1_gender: string;
-  user2_gender: string;
-  compatibility_score: number;
-  created_at: string;
-}
+import { ChevronLeft, Loader2, Users, Settings, Play, RotateCcw, Timer, Volume2, Heart } from "lucide-react";
+import confetti from "canvas-confetti";
 
 export default function Admin1on1Dashboard() {
   const router = useRouter();
-  const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
+  const [matchCount, setMatchCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [hasCelebrated, setHasCelebrated] = useState(false);
 
-  const fetchMatchResults = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setFetchError(null);
-      
-      // matches 테이블 데이터 가져오기 (에러 방지를 위해 order 제거 후 수동 정렬 가능)
-      const [matchesRes, usersRes] = await Promise.all([
-        supabase.from("matches").select("*"),
-        supabase.from("users").select("id, nickname, real_name, phone_suffix, gender")
-      ]);
+  // Timer states
+  const [timerMinutes, setTimerMinutes] = useState(5);
+  const [timeLeft, setTimeLeft] = useState(5 * 60);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [isTimerFinished, setIsTimerFinished] = useState(false);
 
-      if (matchesRes.error) {
-        console.error("Matches Table Error:", matchesRes.error.message);
-        if (matchesRes.error.message.includes("compatibility_score")) {
-          throw new Error("DB에 'compatibility_score' 컬럼이 없습니다. SQL Editor에서 테이블 스키마를 확인해주세요.");
-        }
-        throw matchesRes.error;
-      }
-      
-      if (usersRes.error) throw usersRes.error;
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
-      const allMatches = matchesRes.data || [];
-      const allUsers = usersRes.data || [];
-
-      const formatted = allMatches.map((m: any) => {
-        const u1 = allUsers.find(u => u.id === m.user1_id);
-        const u2 = allUsers.find(u => u.id === m.user2_id);
-
-        return {
-          id: m.id,
-          user1_nickname: u1?.nickname || "알 수 없음",
-          user1_name: u1?.real_name || "미입력",
-          user1_suffix: u1?.phone_suffix || "0000",
-          user2_nickname: u2?.nickname || "알 수 없음",
-          user2_name: u2?.real_name || "미입력",
-          user2_suffix: u2?.phone_suffix || "0000",
-          user1_gender: u1?.gender || "",
-          user2_gender: u2?.gender || "",
-          compatibility_score: m.compatibility_score || 0,
-          created_at: m.created_at
-        };
-      }).sort((a, b) => b.compatibility_score - a.compatibility_score); // 수동 정렬
-
-      setMatchResults(formatted);
-    } catch (err: any) {
-      setFetchError(err.message || "데이터를 불러오는 중 에러가 발생했습니다.");
-    } finally {
-      setIsLoading(false);
+  // Initialize AudioContext on user interaction
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    return audioContextRef.current;
   }, []);
 
+  // Fanfare sound
+  const playFanfareSound = useCallback(() => {
+    try {
+      const ctx = getAudioContext();
+      const now = ctx.currentTime;
+
+      const notes = [
+        { freq: 523.25, start: 0, duration: 0.25 },
+        { freq: 659.25, start: 0.12, duration: 0.25 },
+        { freq: 783.99, start: 0.24, duration: 0.35 },
+        { freq: 1046.50, start: 0.4, duration: 0.5 },
+        { freq: 783.99, start: 0.7, duration: 0.25 },
+        { freq: 1046.50, start: 0.85, duration: 0.7 },
+      ];
+
+      notes.forEach(note => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(note.freq, now + note.start);
+        gain.gain.setValueAtTime(0, now + note.start);
+        gain.gain.linearRampToValueAtTime(0.3, now + note.start + 0.03);
+        gain.gain.linearRampToValueAtTime(0, now + note.start + note.duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + note.start);
+        osc.stop(now + note.start + note.duration + 0.1);
+      });
+    } catch (e) {
+      console.log("Fanfare failed:", e);
+    }
+  }, [getAudioContext]);
+
+  // Beep sound
+  const playBeepSound = useCallback(() => {
+    try {
+      const ctx = getAudioContext();
+      const now = ctx.currentTime;
+
+      const beeps = [
+        { freq: 880, start: 0, duration: 0.12 },
+        { freq: 660, start: 0.18, duration: 0.12 },
+        { freq: 880, start: 0.45, duration: 0.12 },
+        { freq: 660, start: 0.63, duration: 0.12 },
+        { freq: 880, start: 0.9, duration: 0.12 },
+        { freq: 660, start: 1.08, duration: 0.25 },
+      ];
+
+      beeps.forEach(beep => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(beep.freq, now + beep.start);
+        gain.gain.setValueAtTime(0, now + beep.start);
+        gain.gain.linearRampToValueAtTime(0.2, now + beep.start + 0.01);
+        gain.gain.linearRampToValueAtTime(0, now + beep.start + beep.duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + beep.start);
+        osc.stop(now + beep.start + beep.duration + 0.05);
+      });
+    } catch (e) {
+      console.log("Beep failed:", e);
+    }
+  }, [getAudioContext]);
+
+  // Confetti effect
+  const fireConfetti = useCallback(() => {
+    const duration = 3500;
+    const animationEnd = Date.now() + duration;
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+
+    const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+    const interval = setInterval(() => {
+      const timeLeft = animationEnd - Date.now();
+      if (timeLeft <= 0) return clearInterval(interval);
+
+      const particleCount = 40 * (timeLeft / duration);
+
+      confetti({
+        ...defaults,
+        particleCount,
+        origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 },
+        colors: ['#7DD3FC', '#BAE6FD', '#E0F2FE', '#0EA5E9', '#38BDF8', '#F0ABFC', '#FDE68A']
+      });
+      confetti({
+        ...defaults,
+        particleCount,
+        origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 },
+        colors: ['#7DD3FC', '#BAE6FD', '#E0F2FE', '#0EA5E9', '#38BDF8', '#F0ABFC', '#FDE68A']
+      });
+    }, 250);
+  }, []);
+
+  // Celebrate with sound and confetti
+  const celebrate = useCallback(() => {
+    fireConfetti();
+    playFanfareSound();
+    setHasCelebrated(true);
+  }, [fireConfetti, playFanfareSound]);
+
+  // Timer functions
+  const startTimer = useCallback(() => {
+    if (isTimerRunning) return;
+
+    // Initialize audio context on first interaction
+    getAudioContext();
+
+    setIsTimerRunning(true);
+    setIsTimerFinished(false);
+
+    timerIntervalRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerIntervalRef.current!);
+          setIsTimerRunning(false);
+          setIsTimerFinished(true);
+          playBeepSound();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [isTimerRunning, playBeepSound, getAudioContext]);
+
+  const resetTimer = useCallback(() => {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    setIsTimerRunning(false);
+    setIsTimerFinished(false);
+    setTimeLeft(timerMinutes * 60);
+  }, [timerMinutes]);
+
+  const handleMinutesChange = useCallback((value: number) => {
+    const newValue = Math.max(1, Math.min(60, value));
+    setTimerMinutes(newValue);
+    if (!isTimerRunning) setTimeLeft(newValue * 60);
+  }, [isTimerRunning]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Fetch match count
   useEffect(() => {
-    fetchMatchResults();
+    const fetchData = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase.from("matches").select("id");
+      if (!error && data) setMatchCount(data.length);
+      setIsLoading(false);
+    };
+
+    fetchData();
+
     const channel = supabase
       .channel("admin_1on1_dashboard_sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => {
-        fetchMatchResults();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, fetchData)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [fetchMatchResults]);
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -108,113 +209,186 @@ export default function Admin1on1Dashboard() {
   }
 
   return (
-    <main className="min-h-screen w-full bg-[#FAF9F6] text-[#44403C] antialiased flex flex-col font-serif pb-20 overflow-x-hidden">
-      <nav className="h-[70px] border-b border-[#EEEBDE] px-6 md:px-10 flex justify-between items-center bg-white sticky top-0 z-50">
+    <main className="min-h-screen w-full bg-gradient-to-b from-[#F0F9FF] to-[#FAF9F6] text-[#44403C] antialiased flex flex-col font-serif overflow-x-hidden">
+      {/* Navigation */}
+      <nav className="h-[70px] border-b border-sky-100 px-6 md:px-10 flex justify-between items-center bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 cursor-pointer group" onClick={() => router.push("/admin")}>
-            <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            <h1 className="text-xl italic font-black">Matching Result</h1>
+            <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform text-sky-400" />
+            <h1 className="text-xl italic font-black text-stone-700">MC Control</h1>
           </div>
-          <span className="hidden sm:inline text-[9px] font-bold uppercase tracking-[0.4em] text-[#7DD3FC] bg-[#E0F2FE] px-3 py-1 rounded-full border border-[#7DD3FC]/20">Admin View</span>
+          <span className="hidden sm:inline text-[9px] font-bold uppercase tracking-[0.3em] text-sky-500 bg-sky-50 px-3 py-1 rounded-full border border-sky-200">Live</span>
         </div>
-        
+
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-white border border-[#EEEBDE] px-4 py-2 rounded-full shadow-sm mr-2">
-            <Users size={14} className="text-[#7DD3FC]" />
-            <span className="text-[10px] font-black uppercase font-sans tracking-widest">{matchResults.length} Matched</span>
+          <div className="flex items-center gap-1.5 bg-sky-50 border border-sky-200 px-4 py-2 rounded-full">
+            <Users size={14} className="text-sky-500" />
+            <span className="text-[10px] font-black uppercase font-sans tracking-widest text-sky-600">{matchCount} Matched</span>
           </div>
-          <button onClick={() => router.push("/admin/settings")} className="p-2.5 rounded-full border border-[#EEEBDE] hover:bg-[#F0EDE4] transition-all"><Settings size={18} /></button>
+          <button onClick={() => router.push("/admin/settings")} className="p-2.5 rounded-full border border-sky-100 hover:bg-sky-50 transition-all">
+            <Settings size={18} className="text-sky-400" />
+          </button>
         </div>
       </nav>
 
-      <div className="max-w-5xl mx-auto w-full px-6 pt-12">
-        <motion.div className="text-center mb-16" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <motion.div className="inline-block p-4 bg-white border border-[#EEEBDE] rounded-[2rem] mb-6 shadow-sm">
-            <Trophy className="text-[#B19470]" size={32} />
-          </motion.div>
-          <h2 className="text-4xl font-bold italic mb-4">Final Couples</h2>
-          <p className="text-[10px] font-sans font-black uppercase tracking-[0.4em] opacity-40">최종 매칭된 인원들의 상세 정보 리스트입니다</p>
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+        {/* Celebration Banner */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-2xl mb-10"
+        >
+          <div className="relative bg-white border border-sky-200 rounded-[2.5rem] p-10 text-center shadow-[0_8px_30px_rgb(125,211,252,0.15)] overflow-hidden">
+            {/* Subtle gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-br from-sky-50/50 via-transparent to-blue-50/30 pointer-events-none" />
+
+            {/* Content */}
+            <div className="relative z-10">
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-sky-100 to-blue-100 rounded-full mb-6 border border-sky-200"
+              >
+                <Heart size={36} className="text-sky-500" fill="#7DD3FC" />
+              </motion.div>
+
+              <h2 className="text-2xl md:text-3xl font-black text-stone-700 mb-3 tracking-tight">
+                매칭이 완료되었습니다
+              </h2>
+              <p className="text-base text-stone-500 mb-8 leading-relaxed">
+                자리에서 대기해주시면<br className="sm:hidden" /> 사회자가 안내하도록 할게요!
+              </p>
+
+              {/* Celebrate Button */}
+              <motion.button
+                onClick={celebrate}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className={`inline-flex items-center gap-2 px-8 py-3.5 rounded-full font-bold text-sm transition-all shadow-lg ${
+                  hasCelebrated
+                    ? 'bg-sky-100 text-sky-600 border border-sky-200'
+                    : 'bg-gradient-to-r from-sky-400 to-blue-500 text-white hover:shadow-xl hover:shadow-sky-200/50'
+                }`}
+              >
+                <Volume2 size={18} />
+                {hasCelebrated ? '다시 축하하기' : '축하 효과 재생'}
+              </motion.button>
+            </div>
+          </div>
         </motion.div>
 
-        {fetchError ? (
-          <div className="bg-red-50 border border-red-100 p-10 rounded-[3rem] text-center max-w-2xl mx-auto">
-            <AlertCircle className="mx-auto text-red-400 mb-4" size={40} />
-            <p className="text-red-800 font-medium mb-4">{fetchError}</p>
-            <button onClick={fetchMatchResults} className="px-8 py-3 bg-white border border-red-200 rounded-full text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">다시 시도</button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-8">
-            <AnimatePresence mode="popLayout">
-              {matchResults.map((match, idx) => (
-                <motion.div
-                  key={match.id}
-                  layout
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white border border-[#EEEBDE] rounded-[3rem] p-8 md:p-10 shadow-sm relative overflow-hidden group hover:shadow-md transition-all"
+        {/* Timer Control Panel */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="w-full max-w-2xl"
+        >
+          <div className={`bg-white border rounded-[2.5rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300 ${
+            isTimerFinished
+              ? 'border-rose-300 bg-gradient-to-br from-rose-50 to-white animate-pulse'
+              : 'border-sky-200'
+          }`}>
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-8">
+              <div className={`p-3 rounded-2xl ${isTimerFinished ? 'bg-rose-100' : 'bg-sky-100'}`}>
+                <Timer size={22} className={isTimerFinished ? 'text-rose-500' : 'text-sky-500'} />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-stone-700">대화 타이머</h3>
+                <p className="text-xs text-stone-400">대화 시간을 설정하고 관리하세요</p>
+              </div>
+            </div>
+
+            {/* Timer Display */}
+            <div className="flex flex-col items-center gap-8">
+              {/* Big Timer */}
+              <div className={`text-7xl md:text-8xl font-black font-mono tracking-tight transition-all duration-300 ${
+                isTimerFinished
+                  ? 'text-rose-500'
+                  : timeLeft <= 30
+                    ? 'text-amber-500'
+                    : 'text-stone-700'
+              }`}>
+                {formatTime(timeLeft)}
+              </div>
+
+              {/* Minutes Setting */}
+              <div className="flex items-center gap-3 bg-stone-50 rounded-2xl p-2">
+                <button
+                  onClick={() => handleMinutesChange(timerMinutes - 1)}
+                  disabled={isTimerRunning}
+                  className="w-10 h-10 rounded-xl bg-white border border-stone-200 text-stone-500 font-bold text-lg hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                 >
-                  <div className={`absolute top-0 right-0 px-8 py-3 rounded-bl-[2rem] font-sans text-[10px] font-black italic tracking-widest ${
-                    idx === 0 ? 'bg-[#7DD3FC] text-white' : 'bg-[#FAF9F6] text-stone-300 border-l border-b border-[#EEEBDE]'
-                  }`}>
-                    RANK {idx + 1}
-                  </div>
+                  -
+                </button>
+                <div className="flex items-center gap-2 px-4">
+                  <input
+                    type="number"
+                    value={timerMinutes}
+                    onChange={(e) => handleMinutesChange(parseInt(e.target.value) || 1)}
+                    disabled={isTimerRunning}
+                    className="w-14 text-center py-2 font-bold text-xl bg-transparent disabled:text-stone-400"
+                    min={1}
+                    max={60}
+                  />
+                  <span className="text-sm font-medium text-stone-400">분</span>
+                </div>
+                <button
+                  onClick={() => handleMinutesChange(timerMinutes + 1)}
+                  disabled={isTimerRunning}
+                  className="w-10 h-10 rounded-xl bg-white border border-stone-200 text-stone-500 font-bold text-lg hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  +
+                </button>
+              </div>
 
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-10">
-                    {/* User 1 */}
-                    <div className="flex-1 flex flex-col items-center md:items-end text-center md:text-right">
-                      <div className="flex items-center gap-2 mb-1 justify-center md:justify-end">
-                        <span className="text-[10px] font-sans font-black px-2 py-0.5 rounded bg-stone-100 text-stone-400">NICKNAME</span>
-                        <h4 className="text-xl font-bold">{match.user1_nickname}</h4>
-                      </div>
-                      <div className="flex items-center gap-2 justify-center md:justify-end">
-                        <p className="text-2xl font-black italic text-[#44403C]">{match.user1_name}</p>
-                        <p className="text-[11px] font-sans font-black opacity-20 tracking-widest">({match.user1_suffix})</p>
-                      </div>
-                    </div>
+              {/* Control Buttons */}
+              <div className="flex gap-3">
+                <motion.button
+                  onClick={startTimer}
+                  disabled={isTimerRunning}
+                  whileHover={!isTimerRunning ? { scale: 1.02 } : {}}
+                  whileTap={!isTimerRunning ? { scale: 0.98 } : {}}
+                  className={`flex items-center gap-2 px-8 py-4 rounded-2xl font-bold text-sm transition-all ${
+                    isTimerRunning
+                      ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-emerald-400 to-green-500 text-white shadow-lg shadow-green-200/50 hover:shadow-xl'
+                  }`}
+                >
+                  <Play size={20} />
+                  Start
+                </motion.button>
+                <motion.button
+                  onClick={resetTimer}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex items-center gap-2 px-8 py-4 rounded-2xl font-bold text-sm bg-stone-100 text-stone-600 hover:bg-stone-200 transition-all"
+                >
+                  <RotateCcw size={20} />
+                  Reset
+                </motion.button>
+              </div>
+            </div>
 
-                    {/* Score Divider */}
-                    <div className="relative flex flex-col items-center px-4">
-                      <motion.div 
-                        className="relative z-10 w-16 h-16 bg-white border border-[#EEEBDE] rounded-full flex items-center justify-center shadow-sm"
-                        animate={{ scale: [1, 1.1, 1] }}
-                        transition={{ repeat: Infinity, duration: 2 }}
-                      >
-                        <Heart size={24} fill="#7DD3FC" className="text-[#7DD3FC]" />
-                      </motion.div>
-                      <p className="mt-4 text-3xl font-black italic text-[#7DD3FC]">{match.compatibility_score}%</p>
-                    </div>
-
-                    {/* User 2 */}
-                    <div className="flex-1 flex flex-col items-center md:items-start text-center md:text-left">
-                      <div className="flex items-center gap-2 mb-1 justify-center md:justify-start">
-                        <h4 className="text-xl font-bold">{match.user2_nickname}</h4>
-                        <span className="text-[10px] font-sans font-black px-2 py-0.5 rounded bg-stone-100 text-stone-400">NICKNAME</span>
-                      </div>
-                      <div className="flex items-center gap-2 justify-center md:justify-start">
-                        <p className="text-2xl font-black italic text-[#44403C]">{match.user2_name}</p>
-                        <p className="text-[11px] font-sans font-black opacity-20 tracking-widest">({match.user2_suffix})</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="mt-10 w-full bg-[#FAF9F6] h-1.5 rounded-full overflow-hidden border border-[#EEEBDE]/50">
-                    <motion.div
-                      className="h-full rounded-full"
-                      style={{ backgroundColor: PASTEL_THEME.darkBlue }}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${match.compatibility_score}%` }}
-                      transition={{ delay: 0.5, duration: 1 }}
-                    />
-                  </div>
+            {/* Timer Finished Alert */}
+            <AnimatePresence>
+              {isTimerFinished && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="mt-8 p-5 bg-rose-100 border border-rose-200 rounded-2xl flex items-center justify-center gap-3"
+                >
+                  <Volume2 size={22} className="text-rose-500 animate-pulse" />
+                  <span className="font-bold text-rose-600">대화 시간이 종료되었습니다</span>
                 </motion.div>
-              ))}
+              )}
             </AnimatePresence>
-            {matchResults.length === 0 && (
-              <div className="text-center py-20 opacity-30 italic">표시할 매칭 데이터가 없습니다.</div>
-            )}
           </div>
-        )}
+        </motion.div>
       </div>
     </main>
   );
