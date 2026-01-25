@@ -155,11 +155,19 @@ export default function FeedDashboard() {
         throw new Error(result.error || '매칭 처리 중 오류가 발생했습니다.');
       }
 
-      // 2. 유저용 리포트 공개 설정
-      await supabase.from("system_settings").update({ value: "true" }).eq("key", "is_report_open");
+      // 2. 유저용 리포트 공개 설정 (API 사용 - RLS 우회)
+      const phaseRes = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: 'report' })
+      });
+
+      if (!phaseRes.ok) {
+        throw new Error('리포트 공개 설정 실패');
+      }
 
       alert(`✅ 리포트 발행 및 매칭이 성공적으로 완료되었습니다!`);
-      
+
       // 3. 결과 대시보드로 이동
       router.push("/admin/dashboard/1on1"); 
       

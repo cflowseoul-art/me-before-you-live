@@ -31,6 +31,8 @@ interface UsePhaseRedirectOptions {
   onUsersChange?: () => void;
   /** Custom callback when feed opens (prevents auto redirect if provided) */
   onFeedOpened?: () => void;
+  /** Custom callback when report opens (prevents auto redirect if provided) */
+  onReportOpened?: () => void;
 }
 
 /**
@@ -39,7 +41,7 @@ interface UsePhaseRedirectOptions {
  * All values are treated as TEXT type (string comparison)
  */
 export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
-  const { currentPage, onSettingsFetched, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened } = options;
+  const { currentPage, onSettingsFetched, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened, onReportOpened } = options;
 
   // Get user ID from localStorage
   const getUserId = useCallback((): string | null => {
@@ -87,6 +89,12 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
       case "feed":
         // From feed: report takes priority, auction if feed closed
         if (isReportOpen && userId) {
+          // If custom handler provided, call it instead of auto redirect
+          if (onReportOpened) {
+            console.log("🏁 Report opened - calling custom handler");
+            onReportOpened();
+            return true;
+          }
           console.log("🏁 Redirecting to report from feed");
           window.location.href = `/1on1/loading/${userId}`;
           return true;
@@ -114,7 +122,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
     }
 
     return false;
-  }, [currentPage, getUserId, onFeedOpened]);
+  }, [currentPage, getUserId, onFeedOpened, onReportOpened]);
 
   // Fetch initial settings and check for redirect
   const fetchAndCheckSettings = useCallback(async (retryCount = 0): Promise<SystemSettings | null> => {
@@ -199,8 +207,14 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
         // Handle specific key changes with strict TEXT comparison
         if (key === "is_report_open") {
           if (stringValue === "true" && currentPage !== "report" && userId) {
-            console.log("🏁 Report opened - redirecting to report");
-            window.location.href = `/1on1/loading/${userId}`;
+            // If custom handler provided (feed page), call it instead of auto redirect
+            if (currentPage === "feed" && onReportOpened) {
+              console.log("🏁 Report opened - calling custom handler");
+              onReportOpened();
+            } else {
+              console.log("🏁 Report opened - redirecting to report");
+              window.location.href = `/1on1/loading/${userId}`;
+            }
           } else if (stringValue === "false" && currentPage === "report") {
             console.log("🔄 Report closed - checking where to redirect");
             fetchAndCheckSettings();
@@ -281,7 +295,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
       console.log(`🔌 [${currentPage}] Unsubscribing from Realtime`);
       supabase.removeChannel(channel);
     };
-  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened]);
+  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened, onReportOpened]);
 
   return { fetchAndCheckSettings, getUserId };
 }

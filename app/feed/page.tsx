@@ -3,7 +3,8 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePhaseRedirect } from "@/lib/hooks/usePhaseRedirect";
-import { Heart, X } from "lucide-react";
+import { Heart, X, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { parseDriveFileName } from "@/lib/utils/feed-parser";
 
 interface FeedItem {
@@ -35,6 +36,7 @@ export default function FeedPage() {
 
   const [optimisticStatus, setOptimisticStatus] = useState<Record<string, boolean>>({});
   const isSyncing = useRef<Record<string, boolean>>({});
+  const [showReportModal, setShowReportModal] = useState(false);
 
   const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_API_KEY;
   const FOLDER_ID = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID;
@@ -101,6 +103,17 @@ export default function FeedPage() {
     }
   }, [currentUser?.id, API_KEY, FOLDER_ID, shuffledRawItems.length]);
 
+  // 리포트 열림 시 로딩 표시 후 바로 이동
+  const handleReportOpened = useCallback(() => {
+    if (!showReportModal && currentUser?.id) {
+      setShowReportModal(true);
+      // 잠깐 로딩 표시 후 이동
+      setTimeout(() => {
+        window.location.href = `/1on1/loading/${currentUser.id}`;
+      }, 1500);
+    }
+  }, [showReportModal, currentUser?.id]);
+
   usePhaseRedirect({
     currentPage: "feed",
     onSettingsFetched: (settings) => {
@@ -108,8 +121,10 @@ export default function FeedPage() {
       if (currentSession !== session) {
         setCurrentSession(session);
       }
-    }
+    },
+    onReportOpened: handleReportOpened
   });
+
 
   useEffect(() => {
     if (!currentSession) return;
@@ -124,6 +139,24 @@ export default function FeedPage() {
 
     return () => { supabase.removeChannel(channel); };
   }, [currentSession, fetchFeedData]);
+
+  // Phase 변경 감지 폴링 (2초마다)
+  useEffect(() => {
+    const checkPhase = async () => {
+      try {
+        const res = await fetch('/api/admin/phase');
+        const data = await res.json();
+        if (data.success && data.settings?.is_report_open === 'true') {
+          handleReportOpened();
+        }
+      } catch (e) {
+        console.error('Phase check error:', e);
+      }
+    };
+
+    const pollInterval = setInterval(checkPhase, 2000);
+    return () => clearInterval(pollInterval);
+  }, [handleReportOpened]);
 
   const displayItems = useMemo(() => {
     let items = shuffledRawItems.length > 0 ? shuffledRawItems : feedItems;
@@ -245,6 +278,38 @@ export default function FeedPage() {
           </div>
         </div>
       )}
+
+      {/* 리포트 발행 로딩 모달 */}
+      <AnimatePresence>
+        {showReportModal && (
+          <motion.div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-lg"
+            style={{ backgroundColor: "rgba(26, 26, 26, 0.95)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="text-center"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+              >
+                <Sparkles size={60} className="mx-auto mb-8 text-[#7DD3FC]" />
+              </motion.div>
+              <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 italic">
+                1:1 리포트 발행 중
+              </h2>
+              <p className="text-white/70 text-sm font-sans">
+                당신만을 위한 매칭 결과를 준비하고 있습니다
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
