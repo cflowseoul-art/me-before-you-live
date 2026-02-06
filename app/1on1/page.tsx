@@ -41,17 +41,18 @@ export default function UserReportPage({ params }: { params: any }) {
         await new Promise(resolve => setTimeout(resolve, 800));
       }
 
-      const [usersRes, bidsRes, likesRes] = await Promise.all([
+      // ─── 데이터 소스 일원화: matches 테이블에서 공식 결과 조회 ───
+      const [usersRes, matchesRes] = await Promise.all([
         supabase.from("users").select("*"),
-        supabase.from("auction_bids").select("*"),
-        supabase.from("feed_likes").select("*")
+        supabase.from("matches").select("*").eq("user1_id", uid).order("compatibility_score", { ascending: false })
       ]);
 
       if (usersRes.error) throw new Error("데이터 연결 실패");
 
       const allUsers = usersRes.data || [];
-      const allBids = bidsRes.data || [];
-      const allLikes = likesRes.data || [];
+      const matchRows = matchesRes.data || [];
+
+      if (matchRows.length === 0) throw new Error("아직 매칭 결과가 생성되지 않았습니다.");
 
       const me = allUsers.find(u => String(u.id) === String(uid));
       if (!me) throw new Error("내 정보를 찾을 수 없습니다.");
@@ -61,48 +62,19 @@ export default function UserReportPage({ params }: { params: any }) {
       const target = (myGender === "여성" || myGender === "여") ? "남성" : "여성";
       setTargetGender(target);
 
-      const myBids = allBids.filter(b => String(b.user_id) === String(uid));
-      const myLikes = allLikes.filter(l => String(l.user_id) === String(uid));
-
-      const scoredMatches = allUsers
-        .filter(u => String(u.id) !== String(uid) && (u.gender === target || u.gender === target.charAt(0)))
-        .map(other => {
-          let auctionScore = 0;
-          const otherBids = allBids.filter(b => String(b.user_id) === String(other.id));
-
-          if (myBids.length > 0) {
-            let matchRatioSum = 0;
-            myBids.forEach(myBid => {
-              const partnerBid = otherBids.find(ob => ob.auction_item_id === myBid.auction_item_id);
-              if (partnerBid) {
-                const ratio = Math.min(myBid.amount, partnerBid.amount) / Math.max(myBid.amount, partnerBid.amount);
-                matchRatioSum += ratio;
-              }
-            });
-            auctionScore = (matchRatioSum / myBids.length) * 70;
-          }
-
-          const heartsToOther = myLikes.filter(l => String(l.target_user_id) === String(other.id)).length;
-          const feedScore = (Math.min(heartsToOther, 3) / 3) * 30;
-
-          let finalScore = auctionScore + feedScore;
-
-          const receivedLike = allLikes.some(l => String(l.user_id) === String(other.id) && String(l.target_user_id) === String(uid));
-          if (heartsToOther > 0 && receivedLike) {
-            finalScore *= 1.15;
-          }
-
-          return {
-            id: other.id,
-            nickname: other.nickname,
-            final_score: Math.round(Math.min(finalScore, 100)),
-            auction_detail: Math.round(auctionScore),
-            feed_detail: Math.round(feedScore),
-            isMutual: heartsToOther > 0 && receivedLike
-          };
-        })
-        .sort((a, b) => b.final_score - a.final_score)
-        .slice(0, 3);
+      const usersMap = new Map(allUsers.map(u => [u.id, u]));
+      const scoredMatches = matchRows.map(row => {
+        const matchedUser = usersMap.get(row.user2_id);
+        const md = row.match_data || {};
+        return {
+          id: row.user2_id,
+          nickname: matchedUser?.nickname || "알 수 없음",
+          final_score: row.compatibility_score,
+          auction_detail: md.auction_score ?? 0,
+          feed_detail: md.feed_score ?? 0,
+          isMutual: md.is_mutual ?? false
+        };
+      });
 
       setMatches(scoredMatches);
       hasFinished.current = true;

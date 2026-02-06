@@ -52,7 +52,13 @@ export default function FeedPage() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        if (parsed?.id) setCurrentUser(parsed);
+        if (parsed?.id) {
+          setCurrentUser(parsed);
+          // 이성 사진만 보이도록 자동 필터 설정
+          const g = String(parsed.gender || "").substring(0, 1);
+          if (g === "남") setGenderFilter("female");
+          else if (g === "여") setGenderFilter("male");
+        }
       } catch (e) { console.error(e); }
     }
   }, []);
@@ -182,12 +188,20 @@ export default function FeedPage() {
     return checkIfLiked(photoId) ? othersCount + 1 : othersCount;
   };
 
-  // 현재 사용자가 보낸 하트 개수 계산
+  // 현재 세션 피드의 photo_id 집합
+  const currentFeedPhotoIds = useMemo(() => {
+    return new Set(feedItems.map(item => item.id));
+  }, [feedItems]);
+
+  // 현재 사용자가 보낸 하트 개수 계산 (현재 세션 피드 사진만)
   const getMyHeartCount = useCallback(() => {
     if (!currentUser?.id) return 0;
 
-    // optimistic 상태 반영
-    let count = likes.filter(l => String(l.user_id) === String(currentUser.id)).length;
+    // 현재 세션 피드에 속하는 좋아요만 카운트
+    let count = likes.filter(l =>
+      String(l.user_id) === String(currentUser.id) &&
+      currentFeedPhotoIds.has(String(l.photo_id))
+    ).length;
 
     // optimistic 상태에서 추가/삭제된 것 반영
     Object.entries(optimisticStatus).forEach(([photoId, isLiked]) => {
@@ -197,7 +211,7 @@ export default function FeedPage() {
     });
 
     return count;
-  }, [currentUser?.id, likes, optimisticStatus]);
+  }, [currentUser?.id, likes, optimisticStatus, currentFeedPhotoIds]);
 
   // [핵심] 좋아요 처리 로직: 본인 및 같은 성별 차단 + 5개 제한
   const handleLike = async (item: FeedItem) => {
@@ -237,23 +251,42 @@ export default function FeedPage() {
     setOptimisticStatus(prev => ({ ...prev, [item.id]: nextStatus }));
 
     try {
+      let result;
       if (currentlyLiked) {
-        await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
+        result = await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
       } else {
-        await supabase.from("feed_likes").insert({ user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id });
+        result = await supabase.from("feed_likes").insert({ user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id });
       }
-    } catch (e) {
-      console.error(e);
-      fetchFeedData(currentSession);
-    } finally {
-      setTimeout(() => {
+
+      // Supabase 클라이언트는 에러 시 throw하지 않고 { error } 를 반환함
+      if (result.error) {
+        console.error("feed_likes DB error:", result.error);
         setOptimisticStatus(prev => {
           const next = { ...prev };
           delete next[item.id];
           return next;
         });
-        isSyncing.current[item.id] = false;
-      }, 500);
+        fetchFeedData(currentSession);
+        return;
+      }
+
+      // 성공: 실제 DB 데이터를 다시 가져온 후 optimistic 상태 제거
+      await fetchFeedData(currentSession);
+      setOptimisticStatus(prev => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    } catch (e) {
+      console.error(e);
+      setOptimisticStatus(prev => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      fetchFeedData(currentSession);
+    } finally {
+      isSyncing.current[item.id] = false;
     }
   };
 
@@ -280,11 +313,7 @@ export default function FeedPage() {
               <div className="bg-[#FDF8F8] px-3 py-1 rounded-full text-[10px] text-[#A52A2A] font-black uppercase tracking-widest border border-[#A52A2A]/5">{displayItems.length} Photos</div>
             </div>
           </div>
-          <div className="flex gap-2 justify-center">
-            {["all", "male", "female"].map((f: any) => (
-              <button key={f} onClick={() => setGenderFilter(f)} className={`px-6 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${genderFilter === f ? "bg-[#1A1A1A] text-white" : "bg-gray-100 text-gray-400"}`}>{f}</button>
-            ))}
-          </div>
+          {/* 성별 필터: 이성만 자동 표시되므로 유저에게는 숨김 */}
         </div>
       </header>
 

@@ -218,9 +218,9 @@ export default function FeedDashboard() {
         {/* Stats Section */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 font-sans">
           {[
-            { label: "Total Photos", value: feedItems.length, icon: Users, color: "#44403C" },
+            { label: "Total Photos", value: filteredItems.length, icon: Users, color: "#44403C" },
             { label: "Total Hearts", value: totalLikes, icon: Heart, color: "#7DD3FC" },
-            { label: "Top Score", value: feedItems[0]?.like_count || 0, icon: Trophy, color: "#B19470" }
+            { label: "Top Score", value: filteredItems[0]?.like_count || 0, icon: Trophy, color: "#B19470" }
           ].map((stat, i) => (
             <div key={i} className="bg-white border border-[#EEEBDE] rounded-[2rem] p-6 flex items-center gap-5 shadow-sm">
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-[#FAF9F6] border border-[#EEEBDE]" style={{ color: stat.color }}>

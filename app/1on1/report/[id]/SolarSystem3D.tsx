@@ -74,7 +74,7 @@ function Sun() {
       </mesh>
       <Html position={[0, -0.9, 0]} center zIndexRange={[1, 0]} style={{ pointerEvents: "none" }}>
         <span className="text-[10px] text-amber-300 font-bold whitespace-nowrap select-none">
-          나 (The Sun)
+          나
         </span>
       </Html>
     </group>

@@ -312,6 +312,17 @@ export async function POST(request: Request) {
       userFirstActionTime[user.id] = allTimes.length > 0 ? Math.min(...allTimes) : Infinity;
     });
 
+    // 각 가치관별 입찰자 수 사전 계산 (희소성 판단용)
+    const valueBidderCounts: Record<string, number> = {};
+    items.forEach(item => {
+      const bidders = new Set(
+        bids
+          .filter(b => String(b.auction_item_id) === String(item.id) || String(b.item_id) === String(item.id))
+          .map(b => String(b.user_id))
+      );
+      valueBidderCounts[item.title] = bidders.size;
+    });
+
     const allScores: {
       from: string;
       to: string;
@@ -322,6 +333,7 @@ export async function POST(request: Request) {
       commonValues: string[];
       hasVisualPenalty: boolean; // 무관심 페널티 적용 여부
       firstActionTime: number;   // Tie-breaker용
+      partnerTopValue: string;   // 파트너 최고 입찰 가치관
     }[] = [];
 
     for (const user of users) {
@@ -403,6 +415,9 @@ export async function POST(request: Request) {
           userFirstActionTime[candidate.id] || Infinity
         );
 
+        // 파트너(candidate)의 최고 입찰 가치관
+        const partnerTopValue = userTopValues[candidate.id]?.[0] || '';
+
         allScores.push({
           from: user.id,
           to: candidate.id,
@@ -412,7 +427,8 @@ export async function POST(request: Request) {
           isMutual,
           commonValues: commonValues.slice(0, 3),
           hasVisualPenalty,
-          firstActionTime
+          firstActionTime,
+          partnerTopValue
         });
       }
     }
@@ -502,10 +518,32 @@ export async function POST(request: Request) {
       top3.forEach((match) => {
         const normalizedScore = normalizeScore(match.rawScore, minRaw, maxRaw);
 
+        // 희소 공통 가치관 계산 (가장 입찰자 수가 적은 공통 항목)
+        let rarestCommonValue = match.commonValues[0] || match.partnerTopValue || '';
+        let rarestCount = users.length;
+
+        match.commonValues.forEach(val => {
+          const count = valueBidderCounts[val] || users.length;
+          if (count < rarestCount) {
+            rarestCount = count;
+            rarestCommonValue = val;
+          }
+        });
+
         matchesToInsert.push({
           user1_id: user.id,
           user2_id: match.to,
-          compatibility_score: normalizedScore
+          compatibility_score: normalizedScore,
+          match_data: {
+            auction_score: Math.round(match.auctionScore),
+            feed_score: Math.round(match.feedScore),
+            is_mutual: match.isMutual,
+            common_values: match.commonValues,
+            rarest_common_value: rarestCommonValue,
+            rarest_count: rarestCount,
+            total_users: users.length,
+            partner_top_value: match.partnerTopValue
+          }
         });
         matchesCreated++;
       });

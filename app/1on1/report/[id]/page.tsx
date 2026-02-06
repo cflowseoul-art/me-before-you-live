@@ -113,6 +113,25 @@ export default function UserReportPage({ params }: { params: any }) {
     { icon: <ShieldCheck size={20} />, text: "맞춤형 리포트 생성 완료..." }
   ];
 
+  // ─── coreFact 생성: 희소성 vs 대중성 비율 판별 (V6.7) ───
+  const generateCoreFact = (commonValues: string[], rarestCommonValue: string, rarestCount: number, totalUsers: number): string => {
+    const rarestKeyword = VALUE_TO_KEYWORD[rarestCommonValue] || rarestCommonValue;
+
+    if (commonValues.length === 0 || !rarestCommonValue) {
+      return `데이터가 발견한 특별한 연결고리입니다.`;
+    }
+
+    const bidderRatio = rarestCount / totalUsers;
+
+    if (rarestCount <= 2) {
+      return `오늘 이 방에서 **오직 두 분만이** "${rarestKeyword}"에 공명했습니다.`;
+    } else if (bidderRatio >= 0.7) {
+      return `오늘 참가자 대부분이 열광한 "${rarestKeyword}", 두 분은 그중에서도 가장 닮은 안목을 가졌네요.`;
+    } else {
+      return `오늘 ${totalUsers}명 중 ${rarestCount}명이 선택한 "${rarestKeyword}", 두 분만의 특별한 교집합입니다.`;
+    }
+  };
+
   const calculateMatches = useCallback(async (uid: string) => {
     if (isCalculating.current || hasFinished.current) return;
     isCalculating.current = true;
@@ -126,20 +145,22 @@ export default function UserReportPage({ params }: { params: any }) {
         await new Promise(resolve => setTimeout(resolve, 600));
       }
 
-      // 데이터 호출
-      const [usersRes, bidsRes, likesRes, itemsRes] = await Promise.all([
+      // ─── 데이터 소스 일원화: matches 테이블에서 공식 결과 조회 ───
+      const [usersRes, matchesRes, bidsRes, itemsRes] = await Promise.all([
         supabase.from("users").select("*"),
+        supabase.from("matches").select("*").eq("user1_id", uid).order("compatibility_score", { ascending: false }),
         supabase.from("bids").select("*"),
-        supabase.from("feed_likes").select("*"),
         supabase.from("auction_items").select("*")
       ]);
 
       if (usersRes.error) throw new Error("데이터를 연동할 수 없습니다.");
 
       const allUsers = usersRes.data || [];
+      const matchRows = matchesRes.data || [];
       const allBids = bidsRes.data || [];
-      const allLikes = likesRes.data || [];
       const items = itemsRes.data || [];
+
+      if (matchRows.length === 0) throw new Error("아직 매칭 결과가 생성되지 않았습니다. 관리자에게 문의하세요.");
 
       const me = allUsers.find(u => String(u.id) === String(uid));
       if (!me) throw new Error("회원 정보를 찾을 수 없습니다.");
@@ -148,162 +169,66 @@ export default function UserReportPage({ params }: { params: any }) {
       const myGender = me.gender?.trim() || "";
       const target = (myGender === "여성" || myGender === "여" || myGender === "F") ? "남성" : "여성";
 
+      // [V6.4] 내 전체 bid 데이터 저장 (Value Spectrum용)
       const myBids = allBids.filter(b => String(b.user_id) === String(uid));
-      const myLikes = allLikes.filter(l => String(l.user_id) === String(uid));
-
-      // [V6.4] 내 전체 bid 데이터 저장
       const myBidsWithNames = myBids.map(b => {
         const item = items.find(i => i.id === b.auction_item_id);
         return { itemName: item?.title || "", amount: b.amount };
       });
       setMyBidsData(myBidsWithNames);
 
-      // 이성 참가자 필터링
-      const oppositeGenderUsers = allUsers.filter(u =>
-        String(u.id) !== String(uid) && (u.gender?.includes(target.charAt(0)) || u.gender === target)
-      );
-
-      // === V4.2 고도화 매칭 알고리즘 ===
-      const scoredMatches = oppositeGenderUsers
-        .map(other => {
-          const otherBids = allBids.filter(b => String(b.user_id) === String(other.id));
-          const commonValues: string[] = [];
-
-          // === [2.1] 가치관 정합성 (70%) ===
-          let auctionScore = 0;
-          if (myBids.length > 0 && otherBids.length > 0) {
-            let matchRatioSum = 0;
-            let overlapCount = 0;
-
-            myBids.forEach(myBid => {
-              const partnerBid = otherBids.find(ob => ob.auction_item_id === myBid.auction_item_id);
-              if (partnerBid) {
-                // 기본 비율 계산
-                const ratio = Math.min(myBid.amount, partnerBid.amount) / Math.max(myBid.amount, partnerBid.amount);
-
-                // 해당 아이템 총 입찰자 수로 가중치 적용 (희소 가치)
-                const itemBidders = allBids.filter(b => b.auction_item_id === myBid.auction_item_id).length;
-                const scarcityBonus = itemBidders <= 3 ? 1.3 : itemBidders <= 5 ? 1.15 : 1;
-
-                matchRatioSum += ratio * scarcityBonus;
-                overlapCount++;
-
-                // 공통 가치관 추출 (비율 50% 이상인 경우)
-                if (ratio > 0.5) {
-                  const item = items.find(i => i.id === myBid.auction_item_id);
-                  if (item) commonValues.push(item.title);
-                }
-              }
-            });
-
-            if (overlapCount > 0) {
-              auctionScore = (matchRatioSum / overlapCount) * 70;
-            }
-          }
-
-          // === [2.2] 시각적 호감도 (30%) - 지수형 배점 ===
-          const heartsToOther = myLikes.filter(l => String(l.target_user_id) === String(other.id)).length;
-          // 공식: 30 × (선택한 하트 수 / 5)^1.2
-          const feedScore = 30 * Math.pow(Math.min(heartsToOther, 5) / 5, 1.2);
-
-          // === [2.3] 시너지 보너스 ===
-          const receivedLike = allLikes.some(l => String(l.user_id) === String(other.id) && String(l.target_user_id) === String(uid));
-          const isMutual = heartsToOther > 0 && receivedLike;
-
-          let finalScore = auctionScore + feedScore;
-
-          // Mutual Like 1.5배 승수
-          if (isMutual) finalScore *= 1.5;
-
-          // 무관심 페널티: 가치관 점수가 높아도 하트가 0개면 15% 감산
-          if (heartsToOther === 0 && auctionScore > 30) {
-            finalScore *= 0.85;
-          }
-
-          // 상대방 상위 가치관
-          const otherTopBids = [...otherBids].sort((a, b) => b.amount - a.amount).slice(0, 3);
-          const otherTopValues = otherTopBids.map(b => {
-            const item = items.find(i => i.id === b.auction_item_id);
-            return item?.title || "";
-          }).filter(Boolean);
-
-          return {
-            id: other.id,
-            nickname: other.nickname,
-            final_score: Math.round(Math.min(finalScore, 100)),
-            auctionScore: Math.round(auctionScore),
-            feedScore: Math.round(feedScore),
-            isMutual,
-            commonValues: commonValues.slice(0, 3),
-            otherTopValues,
-            heartsReceived: heartsToOther
-          };
-        })
-        .sort((a, b) => {
-          // Mutual은 1순위로 강제 고정
-          if (a.isMutual && !b.isMutual) return -1;
-          if (!a.isMutual && b.isMutual) return 1;
-          return b.final_score - a.final_score;
-        })
-        .slice(0, 3)
-        .filter(m => m.final_score >= 20); // 내행성 최소 점수 기준
+      // ─── matches 테이블 → scoredMatches 변환 ───
+      const usersMap = new Map(allUsers.map(u => [u.id, u]));
+      const scoredMatches = matchRows.map(row => {
+        const matchedUser = usersMap.get(row.user2_id);
+        const md = row.match_data || {};
+        return {
+          id: row.user2_id,
+          nickname: matchedUser?.nickname || "알 수 없음",
+          final_score: row.compatibility_score,
+          auctionScore: md.auction_score ?? 0,
+          feedScore: md.feed_score ?? 0,
+          isMutual: md.is_mutual ?? false,
+          commonValues: md.common_values ?? [],
+          rarestCommonValue: md.rarest_common_value ?? "",
+          rarestCount: md.rarest_count ?? allUsers.length,
+          totalUsers: md.total_users ?? allUsers.length,
+          partnerTopValue: md.partner_top_value ?? "",
+        };
+      });
 
       setMatches(scoredMatches);
 
-      // [V6.0] 솔라 시스템 파트너 데이터 생성
+      // ─── 솔라 시스템 파트너 데이터 생성 (match_data 기반) ───
       if (scoredMatches.length > 0) {
-        // 각 가치관별 입찰자 수 계산
-        const valueBidderCounts: Record<string, number> = {};
-        items.forEach(item => {
-          const bidders = allBids.filter(b => b.auction_item_id === item.id);
-          valueBidderCounts[item.title] = bidders.length;
-        });
-
         const solarData = scoredMatches.map((match, idx) => {
-          // 희소 공통 가치관 찾기 (입찰자 수가 가장 적은 공통 항목)
-          let rarestCommonValue = match.commonValues[0] || match.otherTopValues[0] || "";
-          let rarestCount = allUsers.length;
-
-          // 공통 가치관 중 가장 희소한 것 선택
-          match.commonValues.forEach(val => {
-            const count = valueBidderCounts[val] || allUsers.length;
-            if (count < rarestCount) {
-              rarestCount = count;
-              rarestCommonValue = val;
-            }
-          });
-
-          // [V6.5] 파트너 bid 데이터 추출 및 top_value 계산
+          // 파트너 bid 데이터 추출 (Value Spectrum용)
           const partnerBidsRaw = allBids.filter(b => String(b.user_id) === String(match.id));
           const partnerBidsWithNames = partnerBidsRaw.map(b => {
             const item = items.find(i => i.id === b.auction_item_id);
             return { itemName: item?.title || "", amount: b.amount };
           });
 
-          // [V6.5] 상대방의 top_value (가장 높은 bid)
-          const sortedPartnerBids = [...partnerBidsWithNames].sort((a, b) => b.amount - a.amount);
-          const topValue = sortedPartnerBids[0]?.itemName || "";
+          // top_value: 서버 저장값 우선, 없으면 bids에서 계산
+          const topValue = match.partnerTopValue ||
+            ([...partnerBidsWithNames].sort((a, b) => b.amount - a.amount)[0]?.itemName || "");
           const topValueKeyword = VALUE_TO_KEYWORD[topValue] || "";
           const cheatSheet = CHEAT_SHEET[topValue] || "";
 
-          // Core Fact 문구 생성 - 4글자 키워드 사용
-          const rarestKeyword = VALUE_TO_KEYWORD[rarestCommonValue] || rarestCommonValue;
-          let coreFact = "";
-          if (match.commonValues.length > 0) {
-            if (rarestCount <= 3) {
-              coreFact = `오늘 ${allUsers.length}명 중 오직 ${rarestCount}분만이 "${rarestKeyword}"에 진심이었습니다.`;
-            } else {
-              coreFact = `오늘 ${allUsers.length}명 중 ${rarestCount}명이 "${rarestKeyword}"에 마음을 쏟았어요.`;
-            }
-          } else {
-            coreFact = `데이터가 발견한 특별한 연결고리입니다.`;
-          }
+          // V6.7 coreFact: 희소성 vs 대중성 비율 판별
+          const coreFact = generateCoreFact(
+            match.commonValues,
+            match.rarestCommonValue,
+            match.rarestCount,
+            match.totalUsers
+          );
+          const rarestKeyword = VALUE_TO_KEYWORD[match.rarestCommonValue] || match.rarestCommonValue;
 
           return {
             id: match.id,
             nickname: match.nickname,
             score: match.final_score,
-            orbitDistance: idx + 1, // 1, 2, 3
+            orbitDistance: idx + 1,
             pullFactor: {
               coreFact,
               coreValue: rarestKeyword,
@@ -313,17 +238,20 @@ export default function UserReportPage({ params }: { params: any }) {
             cheatSheet,
             commonValues: match.commonValues,
             isMutual: match.isMutual,
-            rareCount: rarestCount,
+            rareCount: match.rarestCount,
             partnerBids: partnerBidsWithNames,
-            feedScore: match.feedScore, // [V6.6] Visual Score
+            feedScore: match.feedScore,
           };
         });
 
         setSolarPartners(solarData);
       }
 
-      // [V6.1] 외행성 데이터 생성 (내행성 외 나머지 인원)
+      // ─── 외행성 데이터 생성 (내행성 외 이성 참가자) ───
       const innerIds = scoredMatches.map(m => m.id);
+      const oppositeGenderUsers = allUsers.filter(u =>
+        String(u.id) !== String(uid) && (u.gender?.includes(target.charAt(0)) || u.gender === target)
+      );
       const outerPlanetData = oppositeGenderUsers
         .filter(u => !innerIds.includes(u.id))
         .map(u => ({ id: u.id, nickname: u.nickname }));
@@ -382,7 +310,7 @@ export default function UserReportPage({ params }: { params: any }) {
       <section className="max-w-xl mx-auto px-6 space-y-10">
         {/* [V7] 3D 솔라 시스템 - Three.js */}
         <motion.div
-          className="rounded-[2.5rem] shadow-2xl overflow-hidden"
+          className="rounded-[2.5rem] shadow-2xl overflow-hidden bg-[#070714]"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}

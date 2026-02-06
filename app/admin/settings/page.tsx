@@ -166,22 +166,32 @@ export default function AdminSettings() {
 
   const generateFeedRecords = async () => {
     if (!confirm("모든 참가자의 사진 슬롯을 생성하시겠습니까? (이미 생성된 데이터는 유지됩니다)")) return;
-    const records: any[] = [];
+
+    // 기존 레코드 조회하여 이미 있는 슬롯 스킵
+    const { data: existing } = await supabase.from("feed_items").select("user_id, photo_number");
+    const existingSet = new Set((existing || []).map(r => `${r.user_id}_${r.photo_number}`));
+
+    const newRecords: any[] = [];
     users.forEach(user => {
       for (let i = 1; i <= 4; i++) {
-        records.push({
-          user_id: user.id,
-          photo_number: i,
-          order_prefix: "00",
-          gender_code: user.gender || "F",
-          feed_likes: 0 
-        });
+        if (!existingSet.has(`${user.id}_${i}`)) {
+          newRecords.push({
+            user_id: user.id,
+            photo_number: i,
+            order_prefix: "00",
+            gender_code: user.gender || "F"
+          });
+        }
       }
     });
-    const { error } = await supabase
-      .from("feed_items")
-      .upsert(records, { onConflict: 'user_id, photo_number' });
-    if (!error) alert("피드 레코드가 생성/동기화되었습니다.");
+
+    if (newRecords.length === 0) {
+      alert("모든 슬롯이 이미 생성되어 있습니다.");
+      return;
+    }
+
+    const { error } = await supabase.from("feed_items").insert(newRecords);
+    if (!error) alert(`피드 레코드 ${newRecords.length}개가 생성되었습니다.`);
     else alert("오류 발생: " + error.message);
   };
 
