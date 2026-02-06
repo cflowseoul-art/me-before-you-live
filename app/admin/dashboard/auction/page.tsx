@@ -148,12 +148,12 @@ export default function AuctionDashboard() {
   const finishedItems = items.filter(i => i.status === 'finished');
 
   return (
-    <main className="h-screen w-full bg-[#FDFDFD] text-[#1A1A1A] antialiased flex flex-col overflow-hidden">
+    <main className="h-screen w-full bg-[#FAF9F6] text-[#1A1A1A] antialiased flex flex-col overflow-hidden">
       {/* 1. Header Navigation */}
       <nav className="h-[50px] md:h-[70px] border-b border-[#EEEBDE] px-4 md:px-10 flex justify-between items-center bg-white shrink-0">
         <div className="flex items-center gap-2 md:gap-4">
           <h1 className="text-sm md:text-xl font-serif italic font-black cursor-pointer" onClick={() => router.push("/admin")}>Me Before You</h1>
-          <span className="hidden sm:inline text-[8px] md:text-[9px] font-bold uppercase tracking-[0.2em] md:tracking-[0.4em] text-[#A52A2A] bg-[#FDF8F8] px-2 md:px-3 py-1 rounded-full border border-[#A52A2A]/10">Admin</span>
+          <span className="hidden sm:inline text-[8px] md:text-[9px] font-bold uppercase tracking-[0.2em] md:tracking-[0.4em] text-[#7DD3FC] bg-[#E0F2FE] px-2 md:px-3 py-1 rounded-full border border-[#7DD3FC]/20">Admin</span>
         </div>
         <div className="flex items-center gap-1 md:gap-2">
           {/* 하트 버튼: 피드 단계로 전환 (유저들에게 경매 종료 알림) */}
@@ -168,7 +168,7 @@ export default function AuctionDashboard() {
           </motion.button>
 
           <button onClick={handleResetAuction} className="p-2 md:p-2.5 rounded-full border border-red-200 hover:bg-red-50 text-red-500 transition-all" title="경매 초기화"><RefreshCw size={14} className="md:w-4 md:h-4" /></button>
-          <button onClick={() => router.push("/admin/settings")} className="p-2 md:p-2.5 rounded-full border border-[#EEEBDE] hover:bg-[#F0EDE4] transition-all"><Settings size={14} className="md:w-4 md:h-4" /></button>
+          <button onClick={() => router.push("/admin/settings")} className="p-2 md:p-2.5 rounded-full border border-[#EEEBDE] hover:bg-[#FAF9F6] transition-all"><Settings size={14} className="md:w-4 md:h-4" /></button>
         </div>
       </nav>
 
@@ -178,25 +178,25 @@ export default function AuctionDashboard() {
         {/* TOP: Active Now | Inventory Flow */}
         <div className="h-[30%] md:h-[35%] grid grid-cols-2 gap-2 md:gap-4 shrink-0">
           <section className="flex flex-col min-h-0">
-            <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-[#A52A2A]">Active Now</h3>
-            <div className="flex-1 bg-white rounded-xl md:rounded-[2rem] border border-[#EEEBDE] shadow-lg p-2 md:p-6 flex flex-col justify-center overflow-hidden">
+            <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-[#7DD3FC]">Active Now</h3>
+            <div className="flex-1 bg-white rounded-xl md:rounded-[2rem] border border-[#EEEBDE] shadow-sm p-2 md:p-6 flex flex-col justify-center overflow-hidden">
               <AnimatePresence mode="wait">
                 {activeItem ? (
                   <motion.div key={activeItem.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-1 md:gap-3">
                     {VALUE_BADGE[activeItem.title] && (
                       <div className="flex items-center gap-1 md:gap-1.5 mb-1 md:mb-2">
-                        <span className="text-[8px] md:text-xs font-sans font-bold px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full bg-[#A52A2A]/10 text-[#A52A2A]">
+                        <span className="text-[8px] md:text-xs font-sans font-bold px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full bg-[#7DD3FC]/10 text-[#7DD3FC]">
                           {VALUE_BADGE[activeItem.title].keyword}
                         </span>
-                        <span className="text-[8px] md:text-[10px] font-sans text-[#A52A2A]/30">↔</span>
-                        <span className="text-[8px] md:text-xs font-sans px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full bg-[#EEEBDE] text-[#999]">
+                        <span className="text-[8px] md:text-[10px] font-sans text-[#7DD3FC]/30">↔</span>
+                        <span className="text-[8px] md:text-xs font-sans px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full bg-[#EEEBDE] text-gray-400">
                           {VALUE_BADGE[activeItem.title].opposite}
                         </span>
                       </div>
                     )}
                     <h2 className="text-[11px] sm:text-base md:text-xl lg:text-2xl font-serif italic font-black line-clamp-2">{activeItem.title}</h2>
                     <p className="text-base sm:text-lg md:text-2xl lg:text-3xl font-black">{activeItem.current_bid?.toLocaleString()}<span className="text-[8px] md:text-xs font-serif italic ml-0.5 opacity-40">만</span></p>
-                    <button onClick={() => handleFinishAuction(activeItem.id)} className="px-2 py-1 md:px-6 md:py-3 bg-[#A52A2A] text-white rounded-md md:rounded-xl text-[7px] md:text-[9px] font-black uppercase tracking-wider self-start">Finish</button>
+                    <button onClick={() => handleFinishAuction(activeItem.id)} className="px-2 py-1 md:px-6 md:py-3 bg-[#7DD3FC] text-white rounded-md md:rounded-xl text-[7px] md:text-[9px] font-black uppercase tracking-wider self-start">Finish</button>
                   </motion.div>
                 ) : (
                   <div className="text-center opacity-20 italic font-serif text-[10px] md:text-sm">Stage Empty</div>
@@ -207,7 +207,7 @@ export default function AuctionDashboard() {
 
           <section className="flex flex-col min-h-0">
             <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-gray-400">Inventory</h3>
-            <div className="flex-1 bg-[#F0EDE4]/50 rounded-xl md:rounded-[2rem] border border-[#EEEBDE] p-1.5 md:p-4 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 bg-[#FAF9F6] rounded-xl md:rounded-[2rem] border border-[#EEEBDE] p-1.5 md:p-4 overflow-y-auto custom-scrollbar">
               <div className="space-y-1 md:space-y-2">
                 {pendingItems.map((item) => (
                   <div key={item.id} className="bg-white p-1.5 md:p-3 rounded-md md:rounded-lg flex justify-between items-center gap-1">
@@ -216,11 +216,11 @@ export default function AuctionDashboard() {
                   </div>
                 ))}
                 {finishedItems.map((item) => (
-                  <div key={item.id} className="bg-white/40 p-1.5 md:p-3 rounded-md md:rounded-lg border border-dashed border-[#EEEBDE] flex justify-between items-center gap-1">
+                  <div key={item.id} className="bg-white/60 p-1.5 md:p-3 rounded-md md:rounded-lg border border-dashed border-[#EEEBDE] flex justify-between items-center gap-1">
                     <span className="font-serif italic text-[9px] md:text-sm text-gray-300 truncate flex-1">{item.title}</span>
                     <div className="flex gap-1 md:gap-2 shrink-0">
                       <button onClick={() => handleRevertToPending(item.id)} className="text-gray-400 p-0.5"><RotateCcw size={10} className="md:hidden" /><RotateCcw size={14} className="hidden md:block" /></button>
-                      <button onClick={() => handleStartAuction(item.id)} className="text-[6px] md:text-[8px] font-black uppercase text-[#A52A2A]">Re</button>
+                      <button onClick={() => handleStartAuction(item.id)} className="text-[6px] md:text-[8px] font-black uppercase text-[#7DD3FC]">Re</button>
                     </div>
                   </div>
                 ))}
@@ -231,8 +231,8 @@ export default function AuctionDashboard() {
 
         {/* MIDDLE: Live Bid Stream */}
         <section className="flex-1 flex flex-col min-h-0">
-          <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-[#A52A2A]">Live Bids</h3>
-          <div className="flex-1 bg-[#1A1A1A] rounded-xl md:rounded-[2rem] shadow-xl p-2 md:p-4 flex flex-col overflow-hidden">
+          <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-[#7DD3FC]">Live Bids</h3>
+          <div className="flex-1 bg-[#1C1917] rounded-xl md:rounded-[2rem] shadow-xl p-2 md:p-4 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto custom-scrollbar-dark pr-1 md:pr-3 space-y-1 md:space-y-2">
               <AnimatePresence mode="popLayout">
                 {bids.slice(0, 10).map((bid, idx) => (
@@ -249,12 +249,12 @@ export default function AuctionDashboard() {
         {/* BOTTOM: Identity Ranking */}
         <section className="shrink-0">
           <h3 className="text-[7px] md:text-[10px] font-black uppercase tracking-wider md:tracking-[0.3em] mb-1 text-gray-400">Ranking</h3>
-          <div className="bg-[#F0EDE4] rounded-xl md:rounded-2xl p-2 md:p-3 flex flex-wrap gap-1 md:gap-2 shadow-inner">
+          <div className="bg-white rounded-[2rem] border border-[#EEEBDE] p-2 md:p-3 flex flex-wrap gap-1 md:gap-2 shadow-sm">
             {users.slice(0, 10).map((u, idx) => (
-              <div key={u.id} className="flex items-center gap-1 md:gap-1.5 bg-white/60 rounded-lg px-1.5 md:px-2 py-1 md:py-1.5">
-                <span className="text-[10px] md:text-sm font-serif italic text-[#A52A2A]/60 font-bold">{(idx + 1)}</span>
-                <span className="font-bold text-[9px] md:text-xs whitespace-nowrap">{u.nickname}</span>
-                <span className="text-[7px] md:text-[9px] font-black text-[#A52A2A]/40">{u.wonItems.length}W</span>
+              <div key={u.id} className="flex items-center gap-1 md:gap-1.5 bg-[#FAF9F6] rounded-lg px-1.5 md:px-2 py-1 md:py-1.5">
+                <span className="text-[10px] md:text-sm font-serif italic text-[#1A1A1A]/60 font-bold">{(idx + 1)}</span>
+                <span className="font-bold text-[9px] md:text-xs whitespace-nowrap text-[#1A1A1A]">{u.nickname}</span>
+                <span className="text-[7px] md:text-[9px] font-black text-[#1A1A1A]/40">{u.wonItems.length}W</span>
               </div>
             ))}
           </div>

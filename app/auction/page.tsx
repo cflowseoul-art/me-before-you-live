@@ -6,10 +6,6 @@ import { Heart, Trophy, ChevronDown, ChevronUp, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { usePhaseRedirect } from "@/lib/hooks/usePhaseRedirect";
-import { DESIGN_TOKENS } from "@/lib/design-tokens";
-
-const { colors, borderRadius } = DESIGN_TOKENS;
-
 // 가치관 → 축 키워드 뱃지 매핑
 const VALUE_BADGE: Record<string, { keyword: string; opposite: string; axis: string }> = {
   "원하는 것을 살 수 있는 풍요": { keyword: "풍요", opposite: "사랑", axis: "우선순위" },
@@ -231,16 +227,15 @@ export default function AuctionPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen font-serif antialiased pb-20" style={{ backgroundColor: colors.background, color: colors.primary }}>
+    <div className="min-h-screen font-serif antialiased pb-20 bg-[#FDFDFD] text-[#1A1A1A]">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
         <motion.header
-          className="w-full flex justify-between items-center py-8 mb-12 sticky top-0 z-40 backdrop-blur-md"
-          style={{ borderBottom: `1px solid ${colors.soft}`, backgroundColor: `${colors.background}cc` }}
+          className="w-full flex justify-between items-center py-4 sticky top-0 z-40 backdrop-blur-xl bg-white/80 border-b border-[#EEEBDE]"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
           <div className="flex flex-col">
-            <span className="text-[10px] font-sans font-black uppercase tracking-widest" style={{ color: colors.muted }}>참가자</span>
+            <span className="text-[10px] font-sans font-black uppercase tracking-widest text-gray-400">참가자</span>
             <span className="text-2xl italic font-medium tracking-tight">{user.nickname}</span>
           </div>
 
@@ -248,8 +243,7 @@ export default function AuctionPage() {
             {/* [수정 완료] 하트 버튼: 클릭 시 피드 페이지(/feed)로 단순 이동만 수행 */}
             <motion.button
               onClick={() => router.push("/feed")}
-              className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-sm border transition-all"
-              style={{ borderColor: colors.soft, color: colors.accent, backgroundColor: 'white' }}
+              className="w-10 h-10 rounded-full flex items-center justify-center shadow-sm border border-pink-200 text-pink-500 bg-white hover:bg-pink-50 transition-all"
               whileHover={{ scale: 1.1, rotate: 5 }}
               whileTap={{ scale: 0.9 }}
             >
@@ -257,7 +251,7 @@ export default function AuctionPage() {
             </motion.button>
 
             <div className="text-right">
-              <span className="text-[10px] font-sans font-black uppercase tracking-widest" style={{ color: colors.accent }}>나의 잔액</span>
+              <span className="text-[10px] font-sans font-black uppercase tracking-widest text-[#7DD3FC]">나의 잔액</span>
               <div className="text-3xl font-light italic">
                 {user.balance.toLocaleString()}<span className="text-sm not-italic ml-1 opacity-40">만원</span>
               </div>
@@ -269,10 +263,10 @@ export default function AuctionPage() {
           <motion.aside className="w-full lg:w-1/3 order-2 lg:order-1 lg:sticky lg:top-32 space-y-6">
             {/* 나의 비딩 내역 */}
             {myBiddedItems.length > 0 && (
-              <div className="p-6" style={{ backgroundColor: `${colors.paper}`, borderRadius: "2.5rem", border: `1px solid ${colors.soft}` }}>
+              <div className="p-6 bg-white rounded-[2rem] border border-[#EEEBDE]">
                 <div className="flex items-center gap-2 mb-4">
-                  <Trophy size={16} style={{ color: colors.accent }} />
-                  <h3 className="text-[11px] font-sans font-black uppercase tracking-[0.2em] italic" style={{ color: colors.accent }}>나의 비딩 내역</h3>
+                  <Trophy size={16} className="text-[#7DD3FC]" />
+                  <h3 className="text-[11px] font-sans font-black uppercase tracking-[0.2em] italic text-[#7DD3FC]">나의 비딩 내역</h3>
                 </div>
                 <div className="space-y-3">
                   {myBiddedItems.map((item) => {
@@ -285,8 +279,8 @@ export default function AuctionPage() {
                         key={item.id}
                         className="rounded-2xl overflow-hidden"
                         style={{
-                          backgroundColor: isWinner ? `${colors.accent}10` : '#fff',
-                          border: `1px solid ${isWinner ? colors.accent + '40' : colors.soft}`
+                          backgroundColor: isWinner ? '#7DD3FC10' : '#fff',
+                          border: `1px solid ${isWinner ? '#7DD3FC40' : '#EEEBDE'}`
                         }}
                       >
                         {/* 메인 정보 */}
@@ -294,11 +288,7 @@ export default function AuctionPage() {
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-bold">{item.title}</span>
                             <span
-                              className="text-[9px] font-black px-2 py-1 rounded-full"
-                              style={{
-                                backgroundColor: isWinner ? colors.accent : '#9CA3AF',
-                                color: 'white'
-                              }}
+                              className={`text-[9px] font-black px-2 py-1 rounded-full text-white ${isWinner ? 'bg-[#7DD3FC]' : 'bg-gray-400'}`}
                             >
                               {isWinner ? '낙찰 성공' : '낙찰 실패'}
                             </span>
@@ -306,20 +296,19 @@ export default function AuctionPage() {
 
                           <div className="flex gap-4 text-[11px] font-sans mb-3">
                             <div>
-                              <span style={{ color: colors.muted }}>누적 비딩 </span>
+                              <span className="text-gray-400">누적 비딩 </span>
                               <span className="font-bold">{stats.totalAmount.toLocaleString()}만</span>
                             </div>
                             <div>
-                              <span style={{ color: colors.muted }}>최대 비딩 </span>
-                              <span className="font-bold" style={{ color: colors.accent }}>{stats.maxAmount.toLocaleString()}만</span>
+                              <span className="text-gray-400">최대 비딩 </span>
+                              <span className="font-bold text-[#7DD3FC]">{stats.maxAmount.toLocaleString()}만</span>
                             </div>
                           </div>
 
                           {/* 토글 버튼 */}
                           <button
                             onClick={() => toggleItemExpand(item.id)}
-                            className="flex items-center gap-1 text-[10px] font-bold transition-colors"
-                            style={{ color: colors.muted }}
+                            className="flex items-center gap-1 text-[10px] font-bold transition-colors text-gray-400"
                           >
                             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             비딩 내역 {isExpanded ? '접기' : '보기'} ({stats.count}회)
@@ -336,14 +325,14 @@ export default function AuctionPage() {
                               transition={{ duration: 0.2 }}
                               className="overflow-hidden"
                             >
-                              <div className="px-4 pb-4 pt-2 border-t" style={{ borderColor: colors.soft }}>
+                              <div className="px-4 pb-4 pt-2 border-t border-[#EEEBDE]">
                                 <div className="space-y-2">
                                   {stats.itemBids.map((bid, idx) => (
                                     <div
                                       key={bid.id}
                                       className="flex justify-between items-center text-[11px] font-sans py-1"
                                     >
-                                      <span style={{ color: colors.muted }}>{idx + 1}회차 비딩</span>
+                                      <span className="text-gray-400">{idx + 1}회차 비딩</span>
                                       <span className="font-bold">{bid.amount.toLocaleString()}만원</span>
                                     </div>
                                   ))}
@@ -358,16 +347,16 @@ export default function AuctionPage() {
                 </div>
 
                 {/* 요약 */}
-                <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: colors.soft }}>
+                <div className="mt-4 pt-4 border-t border-[#EEEBDE] space-y-2">
                   <div className="flex justify-between items-center text-[11px] font-sans">
-                    <span style={{ color: colors.muted }}>낙찰 성공</span>
-                    <span className="font-bold" style={{ color: colors.accent }}>
+                    <span className="text-gray-400">낙찰 성공</span>
+                    <span className="font-bold text-[#7DD3FC]">
                       {myBiddedItems.filter(item => item.highest_bidder_id === user?.id).length}건
                     </span>
                   </div>
                   <div className="flex justify-between items-center text-[11px] font-sans">
-                    <span style={{ color: colors.muted }}>낙찰 실패</span>
-                    <span className="font-bold" style={{ color: '#9CA3AF' }}>
+                    <span className="text-gray-400">낙찰 실패</span>
+                    <span className="font-bold text-gray-400">
                       {myBiddedItems.filter(item => item.highest_bidder_id !== user?.id).length}건
                     </span>
                   </div>
@@ -376,8 +365,8 @@ export default function AuctionPage() {
             )}
 
             {/* 가치관 경매 현황 */}
-            <div className="p-8" style={{ backgroundColor: `${colors.paper}50`, borderRadius: "2.5rem", border: `1px solid ${colors.soft}` }}>
-              <h3 className="text-[11px] font-sans font-black mb-6 uppercase tracking-[0.2em] italic" style={{ color: colors.muted }}>가치관 경매 현황</h3>
+            <div className="p-8 bg-white rounded-[2rem] border border-[#EEEBDE]">
+              <h3 className="text-[11px] font-sans font-black mb-6 uppercase tracking-[0.2em] italic text-gray-400">가치관 경매 현황</h3>
               <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                 {allItems.map((item, idx) => {
                   const isMyWin = item.status === "finished" && item.highest_bidder_id === user?.id;
@@ -388,28 +377,28 @@ export default function AuctionPage() {
                         item.status === "active" ? "shadow-sm" : item.status === "finished" && !isMyWin ? "opacity-40" : ""
                       }`}
                       style={{
-                        backgroundColor: isMyWin ? `${colors.accent}15` : item.status === "active" ? `${colors.accent}08` : item.status === "finished" ? colors.paper : "white",
-                        borderColor: isMyWin ? colors.accent : item.status === "active" ? `${colors.accent}20` : "transparent"
+                        backgroundColor: isMyWin ? '#7DD3FC15' : item.status === "active" ? '#7DD3FC08' : item.status === "finished" ? '#FAF9F6' : "white",
+                        borderColor: isMyWin ? '#7DD3FC' : item.status === "active" ? '#7DD3FC20' : "transparent"
                       }}
                     >
                       <div className="flex items-center gap-3">
                         {isMyWin ? (
-                          <Trophy size={14} style={{ color: colors.accent }} />
+                          <Trophy size={14} className="text-[#7DD3FC]" />
                         ) : (
-                          <div className={`w-1.5 h-1.5 rounded-full ${item.status === "active" ? "animate-pulse" : ""}`} style={{ backgroundColor: item.status === "active" ? colors.accent : colors.soft }} />
+                          <div className={`w-1.5 h-1.5 rounded-full ${item.status === "active" ? "animate-pulse bg-[#7DD3FC]" : "bg-[#EEEBDE]"}`} />
                         )}
                         <div className="flex flex-col">
                           <span className={`text-sm font-medium ${item.status === "finished" && !isMyWin ? "line-through" : ""}`}>{item.title}</span>
                           {VALUE_BADGE[item.title] && (
-                            <span className="text-[9px] font-sans mt-0.5" style={{ color: colors.muted }}>
+                            <span className="text-[9px] font-sans mt-0.5 text-gray-400">
                               {VALUE_BADGE[item.title].keyword} ↔ {VALUE_BADGE[item.title].opposite}
                             </span>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {isMyWin && <span className="text-[9px] font-black px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.accent, color: 'white' }}>낙찰</span>}
-                        <span className="text-[11px] font-sans font-bold" style={{ color: isMyWin ? colors.accent : colors.muted }}>{item.current_bid.toLocaleString()}만</span>
+                        {isMyWin && <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-[#7DD3FC] text-white">낙찰</span>}
+                        <span className={`text-[11px] font-sans font-bold ${isMyWin ? 'text-[#7DD3FC]' : 'text-gray-400'}`}>{item.current_bid.toLocaleString()}만</span>
                       </div>
                     </motion.div>
                   );
@@ -422,27 +411,27 @@ export default function AuctionPage() {
             <AnimatePresence mode="wait">
               {activeItem ? (
                 <motion.div key={activeItem.id} className="w-full max-w-xl" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}>
-                  <div className="bg-white p-12 shadow-[0_40px_100px_rgba(0,0,0,0.03)] text-center relative overflow-hidden" style={{ borderRadius: "3.5rem", border: `1px solid ${colors.soft}` }}>
-                    <p className="text-[10px] font-sans font-black tracking-[0.4em] mb-4 uppercase italic" style={{ color: `${colors.accent}99` }}>Auction Now</p>
+                  <div className="bg-white p-8 md:p-10 shadow-sm text-center relative overflow-hidden rounded-[2.5rem] border border-[#EEEBDE]">
+                    <p className="text-[10px] font-sans font-black tracking-[0.4em] mb-4 uppercase italic text-[#7DD3FC]/60">Auction Now</p>
                     {VALUE_BADGE[activeItem.title] && (
                       <div className="flex items-center justify-center gap-1.5 mb-4">
-                        <span className="text-xs font-sans font-bold px-2.5 py-1 rounded-full" style={{ backgroundColor: `${colors.accent}15`, color: colors.accent }}>
+                        <span className="text-xs font-sans font-bold px-2.5 py-1 rounded-full bg-[#7DD3FC]/10 text-[#7DD3FC]">
                           {VALUE_BADGE[activeItem.title].keyword}
                         </span>
-                        <span className="text-[10px] font-sans" style={{ color: colors.muted }}>↔</span>
-                        <span className="text-xs font-sans px-2.5 py-1 rounded-full" style={{ backgroundColor: `${colors.soft}`, color: colors.muted }}>
+                        <span className="text-[10px] font-sans text-gray-400">↔</span>
+                        <span className="text-xs font-sans px-2.5 py-1 rounded-full bg-[#EEEBDE] text-gray-400">
                           {VALUE_BADGE[activeItem.title].opposite}
                         </span>
                       </div>
                     )}
                     <h1 className="text-5xl font-medium italic tracking-tighter mb-12 leading-none break-all py-2 break-keep">{activeItem.title}</h1>
-                    <div className="py-10 mb-8 shadow-inner" style={{ backgroundColor: `${colors.paper}50`, borderRadius: borderRadius.onboarding, border: `1px solid ${colors.paper}` }}>
-                      <p className="text-[10px] font-sans font-black tracking-widest mb-2 uppercase italic" style={{ color: colors.muted }}>현재 최고가</p>
-                      <p className="text-5xl font-light tracking-tighter italic" style={{ color: colors.accent }}>{activeItem.current_bid.toLocaleString()}<span className="text-sm not-italic ml-1 opacity-30">만원</span></p>
+                    <div className="py-10 mb-8 shadow-inner rounded-[3rem] bg-[#FAF9F6]/50 border border-[#FAF9F6]">
+                      <p className="text-[10px] font-sans font-black tracking-widest mb-2 uppercase italic text-gray-400">현재 최고가</p>
+                      <p className="text-5xl font-light tracking-tighter italic text-[#7DD3FC]">{activeItem.current_bid.toLocaleString()}<span className="text-sm not-italic ml-1 opacity-30">만원</span></p>
                     </div>
                     <div className="mb-6">
-                      <p className="text-[10px] font-sans font-black tracking-widest mb-1 uppercase" style={{ color: colors.muted }}>나의 입찰가</p>
-                      <div className={`flex items-center gap-3 bg-white border rounded-2xl px-6 py-4 transition-colors`} style={{ borderColor: bidAmount && !isValidBid ? "#fca5a5" : colors.soft }}>
+                      <p className="text-[10px] font-sans font-black tracking-widest mb-1 uppercase text-gray-400">나의 입찰가</p>
+                      <div className={`flex items-center gap-3 bg-white border rounded-2xl px-6 py-4 transition-colors ${bidAmount && !isValidBid ? 'border-red-300' : 'border-[#EEEBDE]'}`}>
                         <input
                           type="text"
                           inputMode="numeric"
@@ -451,15 +440,14 @@ export default function AuctionPage() {
                           placeholder={minBidAmount.toLocaleString()}
                           className="flex-1 text-3xl font-light bg-transparent outline-none text-center tracking-tight"
                         />
-                        <span className="font-sans text-sm" style={{ color: colors.muted }}>만원</span>
+                        <span className="font-sans text-sm text-gray-400">만원</span>
                       </div>
                     </div>
                     <motion.button
                       onClick={handleBid}
                       disabled={loading || !isValidBid}
-                      className="w-full text-white py-7 text-sm font-bold tracking-[0.3em] uppercase shadow-2xl disabled:bg-gray-200"
-                      style={{ backgroundColor: colors.primary, borderRadius: "2.2rem" }}
-                      whileHover={{ backgroundColor: colors.accent }}
+                      className="w-full text-white py-7 text-sm font-bold tracking-[0.3em] uppercase shadow-2xl disabled:bg-gray-200 rounded-full bg-[#1A1A1A]"
+                      whileHover={{ backgroundColor: '#7DD3FC' }}
                       whileTap={{ scale: 0.98 }}
                     >
                       {loading ? "처리 중..." : `${bidAmountNum ? bidAmountNum.toLocaleString() : minBidAmount.toLocaleString()}만원 입찰`}
@@ -467,7 +455,7 @@ export default function AuctionPage() {
                   </div>
                 </motion.div>
               ) : (
-                <div className="py-32 italic tracking-widest text-sm text-center font-serif" style={{ color: colors.muted }}>
+                <div className="py-32 italic tracking-widest text-sm text-center font-serif text-gray-400">
                   현재 진행 중인 경매가 없습니다.<br />잠시만 기다려주세요.
                 </div>
               )}
@@ -479,15 +467,15 @@ export default function AuctionPage() {
       {/* 경매 안내 모달 */}
       <AnimatePresence>
         {showModal && (
-          <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-md" style={{ backgroundColor: `${colors.primary}80` }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="bg-white w-full max-w-md p-10 shadow-2xl text-center" style={{ borderRadius: "3.5rem", borderTop: `10px solid ${colors.accent}` }} initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}>
-              <h2 className="text-2xl italic tracking-tight mb-8" style={{ color: colors.primary }}>가치관 경매 안내</h2>
-              <div className="space-y-5 text-sm font-light mb-10 leading-loose text-left px-4 font-sans" style={{ color: colors.muted }}>
-                <p>• 1인당 자산 <span className="font-bold" style={{ color: colors.accent }}>1,000만원</span>이 지급됩니다.</p>
-                <p>• 현재 최고가보다 <span className="font-bold" style={{ color: colors.accent }}>최소 100만원 이상</span> 높게 입찰해야 합니다.</p>
-                <p>• 입찰 성공 시 자산이 <span className="font-bold underline" style={{ color: colors.primary }}>즉시 차감</span>됩니다.</p>
+          <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-md bg-[#1A1A1A]/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="bg-white w-full max-w-md p-10 shadow-2xl text-center rounded-[2.5rem] border-t-[10px] border-t-[#7DD3FC]" initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}>
+              <h2 className="text-2xl italic tracking-tight mb-8 text-[#1A1A1A]">가치관 경매 안내</h2>
+              <div className="space-y-5 text-sm font-light mb-10 leading-loose text-left px-4 font-sans text-gray-400">
+                <p>• 1인당 자산 <span className="font-bold text-[#7DD3FC]">1,000만원</span>이 지급됩니다.</p>
+                <p>• 현재 최고가보다 <span className="font-bold text-[#7DD3FC]">최소 100만원 이상</span> 높게 입찰해야 합니다.</p>
+                <p>• 입찰 성공 시 자산이 <span className="font-bold underline text-[#1A1A1A]">즉시 차감</span>됩니다.</p>
               </div>
-              <button onClick={closeIntroModal} className="w-full text-white py-5 rounded-2xl text-xs font-bold tracking-[0.2em] uppercase" style={{ backgroundColor: colors.primary }}>확인했습니다</button>
+              <button onClick={closeIntroModal} className="w-full text-white py-5 rounded-2xl text-xs font-bold tracking-[0.2em] uppercase bg-[#1A1A1A]">확인했습니다</button>
             </motion.div>
           </motion.div>
         )}
@@ -498,7 +486,7 @@ export default function AuctionPage() {
         {showEndModal && (
           <motion.div
             className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-lg"
-            style={{ backgroundColor: `${colors.primary}95` }}
+            style={{ backgroundColor: 'rgba(26,26,26,0.58)' }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -513,7 +501,7 @@ export default function AuctionPage() {
                 initial={{ y: -20 }}
                 animate={{ y: 0 }}
               >
-                <Heart size={60} fill={colors.accent} color={colors.accent} className="mx-auto mb-6" />
+                <Heart size={60} fill="#7DD3FC" color="#7DD3FC" className="mx-auto mb-6" />
                 <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 italic">
                   경매가 종료되었습니다
                 </h2>
@@ -527,7 +515,7 @@ export default function AuctionPage() {
                 initial={{ scale: 1.5, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 className="text-8xl md:text-9xl font-black text-white"
-                style={{ textShadow: `0 0 60px ${colors.accent}` }}
+                style={{ textShadow: '0 0 60px #7DD3FC' }}
               >
                 {countdown}
               </motion.div>
@@ -541,10 +529,7 @@ export default function AuctionPage() {
                 {[3, 2, 1].map((num) => (
                   <div
                     key={num}
-                    className="w-3 h-3 rounded-full transition-all duration-300"
-                    style={{
-                      backgroundColor: countdown >= num ? colors.accent : 'rgba(255,255,255,0.3)'
-                    }}
+                    className={`w-3 h-3 rounded-full transition-all duration-300 ${countdown >= num ? 'bg-[#7DD3FC]' : 'bg-white/30'}`}
                   />
                 ))}
               </motion.div>

@@ -34,7 +34,16 @@ export async function POST() {
     if (feedError) console.error('Feed items delete error:', feedError);
     results.feed_items = { success: !feedError, error: feedError?.message };
 
-    // 4. Reset auction_items BEFORE deleting users (clear highest_bidder_id reference)
+    // 4. Delete conversation_feedback (references users)
+    const { error: feedbackError } = await supabaseAdmin
+      .from('conversation_feedback')
+      .delete()
+      .not('id', 'is', null);
+
+    if (feedbackError) console.error('Conversation feedback delete error:', feedbackError);
+    results.conversation_feedback = { success: !feedbackError, error: feedbackError?.message };
+
+    // 5. Reset auction_items BEFORE deleting users (clear highest_bidder_id reference)
     const { error: auctionError } = await supabaseAdmin
       .from('auction_items')
       .update({
@@ -47,7 +56,7 @@ export async function POST() {
     if (auctionError) console.error('Auction items reset error:', auctionError);
     results.auction_items = { success: !auctionError, error: auctionError?.message };
 
-    // 5. Delete all users (after clearing all references)
+    // 6. Delete all users (after clearing all references)
     const { error: usersError } = await supabaseAdmin
       .from('users')
       .delete()
@@ -56,11 +65,13 @@ export async function POST() {
     if (usersError) console.error('Users delete error:', usersError);
     results.users = { success: !usersError, error: usersError?.message };
 
-    // 6. Reset system_settings to initial state
+    // 7. Reset system_settings to initial state
     const settingsUpdates = [
       { key: 'current_phase', value: 'auction' },
       { key: 'is_feed_open', value: 'false' },
-      { key: 'is_report_open', value: 'false' }
+      { key: 'is_report_open', value: 'false' },
+      { key: 'active_feedback_round', value: '0' },
+      { key: 'is_final_report_open', value: 'false' }
     ];
 
     let settingsError = null;

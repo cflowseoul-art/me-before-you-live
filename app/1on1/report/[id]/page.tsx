@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 import { usePhaseRedirect } from "@/lib/hooks/usePhaseRedirect";
 import {
   Sparkles, Search, Heart, ShieldCheck, AlertCircle, RefreshCcw,
-  MessageCircle, Users, Link2, Fingerprint, Star
+  MessageCircle, Users, Link2, Fingerprint, Star, Loader2, Check
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -90,7 +91,20 @@ const CHEAT_SHEET_2: Record<string, string> = {
   "소중한 사람을 위한 헌신": "누군가를 위해 기꺼이 포기할 수 있는 게 있다면?",
 };
 
+// Survey constants
+const VIBE_OPTIONS = [
+  { key: 'spark', emoji: '\u{1F525}', label: '불꽃이 튀었어요' },
+  { key: 'calm', emoji: '\u{1F60A}', label: '편안하고 좋았어요' },
+  { key: 'cold', emoji: '\u{1F9CA}', label: '아쉬웠어요' },
+] as const;
+
+const CHARM_OPTIONS = [
+  '다정다감', '세심한 배려', '예쁜 말투',
+  '매력적 외모', '깊은 가치관', '유머러스함',
+] as const;
+
 export default function UserReportPage({ params }: { params: any }) {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [matches, setMatches] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -122,6 +136,20 @@ export default function UserReportPage({ params }: { params: any }) {
   const [selectedPlanet, setSelectedPlanet] = useState<{ index: number; isMatch: boolean } | null>(null);
   // [V6.1] 외행성 (Top 3 외 나머지 인원)
   const [outerPlanets, setOuterPlanets] = useState<{ id: string; nickname: string }[]>([]);
+
+  // Survey (인연의 잔상) states
+  const [showSurveyModal, setShowSurveyModal] = useState(false);
+  const [surveyStep, setSurveyStep] = useState<1 | 2>(1);
+  const [surveyRound, setSurveyRound] = useState<number>(0);
+  const [surveyPartner, setSurveyPartner] = useState<{ id: string; nickname: string } | null>(null);
+  const [selectedVibe, setSelectedVibe] = useState<string | null>(null);
+  const [selectedCharms, setSelectedCharms] = useState<string[]>([]);
+  const [surveySubmitting, setSurveySubmitting] = useState(false);
+  const [surveyComplete, setSurveyComplete] = useState(false);
+  const [submittedRounds, setSubmittedRounds] = useState<Set<number>>(new Set());
+
+  // Final report overlay state
+  const [showFinalReportOverlay, setShowFinalReportOverlay] = useState(false);
 
   const isCalculating = useRef(false);
   const hasFinished = useRef(false);
@@ -325,6 +353,110 @@ export default function UserReportPage({ params }: { params: any }) {
       }
     }
   });
+
+  // Realtime listener for survey dispatch (별도 채널)
+  useEffect(() => {
+    if (!userId || solarPartners.length === 0) return;
+
+    const channel = supabase
+      .channel('survey_dispatch_listener')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'system_settings',
+      }, (payload) => {
+        const row = payload.new as { key: string; value: string };
+        if (row.key !== 'active_feedback_round') return;
+
+        const round = parseInt(row.value);
+        if (isNaN(round) || round <= 0) return;
+
+        // Skip if already submitted
+        if (submittedRounds.has(round)) return;
+
+        // Find partner for this round (round-1 index in solarPartners, sorted by score desc)
+        const partnerIndex = round - 1;
+        if (partnerIndex >= solarPartners.length) return;
+
+        const partner = solarPartners[partnerIndex];
+        setSurveyRound(round);
+        setSurveyPartner({ id: partner.id, nickname: partner.nickname });
+        setSurveyStep(1);
+        setSelectedVibe(null);
+        setSelectedCharms([]);
+        setSurveyComplete(false);
+        setShowSurveyModal(true);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, solarPartners, submittedRounds]);
+
+  // Realtime listener for final report dispatch
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel('final_report_listener')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'system_settings',
+      }, (payload) => {
+        const row = payload.new as { key: string; value: string };
+        if (row.key !== 'is_final_report_open') return;
+        if (row.value === 'true') {
+          setShowFinalReportOverlay(true);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  // Submit survey
+  const handleSubmitSurvey = useCallback(async () => {
+    if (!userId || !surveyPartner || !selectedVibe || surveySubmitting) return;
+    setSurveySubmitting(true);
+    try {
+      const { error } = await supabase.from('conversation_feedback').insert({
+        user_id: userId,
+        partner_id: surveyPartner.id,
+        round: surveyRound,
+        vibe: selectedVibe,
+        charms: selectedCharms,
+      });
+
+      if (error) {
+        // UNIQUE constraint → already submitted
+        if (error.code === '23505') {
+          setSubmittedRounds(prev => new Set(prev).add(surveyRound));
+        }
+        console.error('Survey submit error:', error.message, error.code, error.details, error.hint);
+      } else {
+        setSubmittedRounds(prev => new Set(prev).add(surveyRound));
+      }
+      setSurveyComplete(true);
+      setTimeout(() => setShowSurveyModal(false), 1500);
+    } catch (e) {
+      console.error('Survey submit failed:', e);
+    } finally {
+      setSurveySubmitting(false);
+    }
+  }, [userId, surveyPartner, selectedVibe, selectedCharms, surveyRound, surveySubmitting]);
+
+  // Charm toggle (max 2)
+  const toggleCharm = useCallback((charm: string) => {
+    setSelectedCharms(prev => {
+      if (prev.includes(charm)) return prev.filter(c => c !== charm);
+      if (prev.length >= 2) return prev;
+      return [...prev, charm];
+    });
+  }, []);
 
   if (isLoading) return <LoadingScreen step={loadingStep} messages={loadingMessages} nickname={user?.nickname} />;
 
@@ -631,6 +763,120 @@ export default function UserReportPage({ params }: { params: any }) {
         )}
       </AnimatePresence>
 
+      {/* Survey Modal (인연의 잔상) */}
+      <AnimatePresence>
+        {showSurveyModal && surveyPartner && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+            <motion.div
+              className="fixed inset-x-4 bottom-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-sm z-[70] bg-white/95 backdrop-blur-xl border border-purple-200 rounded-[2rem] p-7 shadow-2xl"
+              initial={{ opacity: 0, y: 100, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 100, scale: 0.95 }}
+              transition={{ type: "spring", damping: 25 }}
+            >
+              {surveyComplete ? (
+                <motion.div
+                  className="text-center py-8"
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                >
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-100 rounded-full mb-4">
+                    <Check size={32} className="text-emerald-500" />
+                  </div>
+                  <p className="text-lg font-bold text-stone-700">잔상이 기록되었어요</p>
+                </motion.div>
+              ) : surveyStep === 1 ? (
+                /* Step 1: Vibe */
+                <div className="text-center">
+                  <p className="text-[10px] font-sans font-black uppercase tracking-widest text-purple-500 mb-2">
+                    Round {surveyRound}
+                  </p>
+                  <h3 className="text-lg font-bold text-stone-700 mb-1">
+                    {surveyPartner.nickname}님과의 대화,
+                  </h3>
+                  <p className="text-lg font-bold text-stone-700 mb-6">어떠셨나요?</p>
+
+                  <div className="space-y-2.5">
+                    {VIBE_OPTIONS.map((vibe) => (
+                      <motion.button
+                        key={vibe.key}
+                        onClick={() => {
+                          setSelectedVibe(vibe.key);
+                          setSurveyStep(2);
+                        }}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full py-4 px-5 rounded-2xl border-2 border-stone-100 hover:border-purple-300 bg-white hover:bg-purple-50 transition-all flex items-center gap-3 text-left"
+                      >
+                        <span className="text-2xl">{vibe.emoji}</span>
+                        <span className="font-bold text-stone-700">{vibe.label}</span>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* Step 2: Charms */
+                <div className="text-center">
+                  <p className="text-[10px] font-sans font-black uppercase tracking-widest text-purple-500 mb-2">
+                    Round {surveyRound}
+                  </p>
+                  <h3 className="text-lg font-bold text-stone-700 mb-1">
+                    어떤 점이 기억에 남나요?
+                  </h3>
+                  <p className="text-xs text-stone-400 mb-5">최대 2개 선택</p>
+
+                  <div className="grid grid-cols-2 gap-2 mb-6">
+                    {CHARM_OPTIONS.map((charm) => (
+                      <motion.button
+                        key={charm}
+                        onClick={() => toggleCharm(charm)}
+                        whileTap={{ scale: 0.95 }}
+                        className={`py-3 px-3 rounded-xl text-sm font-bold transition-all ${
+                          selectedCharms.includes(charm)
+                            ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg shadow-purple-200/50 border-2 border-purple-400'
+                            : 'bg-stone-50 text-stone-600 border-2 border-stone-100 hover:border-purple-200'
+                        }`}
+                      >
+                        {charm}
+                      </motion.button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSurveyStep(1)}
+                      className="flex-1 py-3.5 rounded-2xl text-sm font-bold bg-stone-100 text-stone-500 hover:bg-stone-200 transition-all"
+                    >
+                      이전
+                    </button>
+                    <motion.button
+                      onClick={handleSubmitSurvey}
+                      disabled={surveySubmitting}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex-[2] py-3.5 rounded-2xl text-sm font-bold bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-lg shadow-purple-200/50 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {surveySubmitting ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Check size={16} />
+                      )}
+                      {surveySubmitting ? '저장 중...' : '잔상 남기기'}
+                    </motion.button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* [V6.1] 외행성 클릭 시 에러 메시지 모달 */}
       <AnimatePresence>
         {selectedPlanet !== null && !selectedPlanet.isMatch && (
@@ -674,6 +920,91 @@ export default function UserReportPage({ params }: { params: any }) {
               </motion.button>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Final Report Opening Overlay */}
+      <AnimatePresence>
+        {showFinalReportOverlay && (
+          <motion.div
+            className="fixed inset-0 z-[80] bg-black flex flex-col items-center justify-center p-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            {/* Gold particles effect */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              {[...Array(20)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  className="absolute w-1 h-1 bg-amber-400 rounded-full"
+                  style={{
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                  }}
+                  animate={{
+                    opacity: [0, 1, 0],
+                    scale: [0, 1.5, 0],
+                    y: [0, -30],
+                  }}
+                  transition={{
+                    duration: 2 + Math.random() * 2,
+                    repeat: Infinity,
+                    delay: Math.random() * 2,
+                  }}
+                />
+              ))}
+            </div>
+
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
+              className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-full mb-8 shadow-[0_0_60px_rgba(245,158,11,0.4)]"
+            >
+              <Sparkles size={44} className="text-white" />
+            </motion.div>
+
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+              className="text-[10px] font-sans font-black uppercase tracking-[0.4em] text-amber-400 mb-4"
+            >
+              The Signature
+            </motion.p>
+
+            <motion.h2
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8 }}
+              className="text-2xl md:text-3xl font-bold text-white text-center mb-3 tracking-tight"
+            >
+              당신의 시그니처가<br />도착했습니다
+            </motion.h2>
+
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.0 }}
+              className="text-sm text-amber-200/70 text-center mb-10"
+            >
+              오늘의 모든 선택이 담긴 최종 리포트
+            </motion.p>
+
+            <motion.button
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.2 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => router.push(`/final_report/${userId}`)}
+              className="px-10 py-4 bg-gradient-to-r from-amber-400 to-yellow-500 text-white rounded-full text-sm font-bold shadow-lg shadow-amber-500/30 hover:shadow-xl transition-all"
+            >
+              시그니처 리포트 열기
+            </motion.button>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

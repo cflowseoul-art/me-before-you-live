@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Loader2, Users, Settings, Play, RotateCcw, Timer, Volume2, Heart } from "lucide-react";
+import { ChevronLeft, Loader2, Users, Settings, Play, RotateCcw, Timer, Volume2, Heart, Send, Check, MessageCircle, Sparkles } from "lucide-react";
 import confetti from "canvas-confetti";
 
 export default function Admin1on1Dashboard() {
@@ -18,6 +18,24 @@ export default function Admin1on1Dashboard() {
   const [timeLeft, setTimeLeft] = useState(5 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isTimerFinished, setIsTimerFinished] = useState(false);
+
+  // Feedback modal states
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+
+  // Final report states
+  const [surveyStats, setSurveyStats] = useState<{
+    feedbackCount: number;
+    matchedUserCount: number;
+    activeRound: number;
+    expectedTotal: number;
+    completionRate: number;
+  } | null>(null);
+  const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [isSendingFinal, setIsSendingFinal] = useState(false);
+  const [finalSent, setFinalSent] = useState(false);
 
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -164,7 +182,42 @@ export default function Admin1on1Dashboard() {
     setIsTimerRunning(false);
     setIsTimerFinished(false);
     setTimeLeft(timerMinutes * 60);
+    // Reset feedback modal states
+    setShowFeedbackModal(false);
+    setSelectedRound(null);
+    setIsSending(false);
+    setFeedbackSent(false);
   }, [timerMinutes]);
+
+  // Auto-popup feedback modal when timer finishes
+  useEffect(() => {
+    if (isTimerFinished) {
+      setShowFeedbackModal(true);
+      setFeedbackSent(false);
+      setSelectedRound(null);
+    }
+  }, [isTimerFinished]);
+
+  // Send feedback round to users
+  const handleSendFeedback = useCallback(async () => {
+    if (selectedRound === null || isSending) return;
+    setIsSending(true);
+    try {
+      const res = await fetch('/api/admin/feedback-round', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ round: String(selectedRound) }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFeedbackSent(true);
+      }
+    } catch (e) {
+      console.error('Failed to send feedback round:', e);
+    } finally {
+      setIsSending(false);
+    }
+  }, [selectedRound, isSending]);
 
   const handleMinutesChange = useCallback((value: number) => {
     const newValue = Math.max(1, Math.min(60, value));
@@ -178,6 +231,42 @@ export default function Admin1on1Dashboard() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Fetch survey stats for final report section
+  const fetchSurveyStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/final-report');
+      const data = await res.json();
+      if (data.success) {
+        setSurveyStats(data.survey);
+        if (data.is_final_report_open) setFinalSent(true);
+      }
+    } catch (e) {
+      console.error('Failed to fetch survey stats:', e);
+    }
+  }, []);
+
+  // Send final report
+  const handleSendFinalReport = useCallback(async () => {
+    if (isSendingFinal) return;
+    setIsSendingFinal(true);
+    try {
+      const res = await fetch('/api/admin/final-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ open: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFinalSent(true);
+        setShowFinalConfirm(false);
+      }
+    } catch (e) {
+      console.error('Failed to send final report:', e);
+    } finally {
+      setIsSendingFinal(false);
+    }
+  }, [isSendingFinal]);
+
   // Fetch match count
   useEffect(() => {
     const fetchData = async () => {
@@ -188,14 +277,22 @@ export default function Admin1on1Dashboard() {
     };
 
     fetchData();
+    fetchSurveyStats();
 
     const channel = supabase
       .channel("admin_1on1_dashboard_sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, fetchData)
       .subscribe();
 
+    // Realtime for conversation_feedback count updates
+    const feedbackChannel = supabase
+      .channel("admin_feedback_stats")
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_feedback" }, fetchSurveyStats)
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(feedbackChannel);
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
@@ -377,6 +474,21 @@ export default function Admin1on1Dashboard() {
               </div>
             </div>
 
+            {/* Manual Feedback Override Button */}
+            {isTimerRunning && (
+              <motion.button
+                onClick={() => { setShowFeedbackModal(true); setFeedbackSent(false); setSelectedRound(null); }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="mt-6 w-full py-3 bg-violet-100 text-violet-600 border border-violet-200 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-violet-200 transition-all"
+              >
+                <MessageCircle size={16} />
+                인연의 잔상 수동 발송
+              </motion.button>
+            )}
+
             {/* Timer Finished Alert */}
             <AnimatePresence>
               {isTimerFinished && (
@@ -384,16 +496,239 @@ export default function Admin1on1Dashboard() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="mt-8 p-5 bg-rose-100 border border-rose-200 rounded-2xl flex items-center justify-center gap-3"
+                  className="mt-8 space-y-3"
                 >
-                  <Volume2 size={22} className="text-rose-500 animate-pulse" />
-                  <span className="font-bold text-rose-600">대화 시간이 종료되었습니다</span>
+                  <div className="p-5 bg-rose-100 border border-rose-200 rounded-2xl flex items-center justify-center gap-3">
+                    <Volume2 size={22} className="text-rose-500 animate-pulse" />
+                    <span className="font-bold text-rose-600">대화 시간이 종료되었습니다</span>
+                  </div>
+                  {!showFeedbackModal && (
+                    <motion.button
+                      onClick={() => { setShowFeedbackModal(true); setFeedbackSent(false); setSelectedRound(null); }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="w-full py-3.5 bg-gradient-to-r from-violet-400 to-purple-500 text-white rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      <MessageCircle size={18} />
+                      인연의 잔상 발송하기
+                    </motion.button>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
         </motion.div>
+
+        {/* The Final Command Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="w-full max-w-2xl mt-8"
+        >
+          <div className="bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-[2.5rem] p-8 shadow-[0_8px_30px_rgb(245,158,11,0.1)] relative overflow-hidden">
+            {/* Decorative gradient */}
+            <div className="absolute inset-0 bg-gradient-to-br from-amber-100/30 via-transparent to-yellow-100/20 pointer-events-none" />
+
+            <div className="relative z-10">
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-200 to-yellow-200 border border-amber-300">
+                  <Sparkles size={22} className="text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-amber-900">The Final Command</h3>
+                  <p className="text-xs text-amber-600">최종 시그니처 리포트 발송</p>
+                </div>
+              </div>
+
+              {/* Survey Stats Badge */}
+              {surveyStats && (
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="flex items-center gap-2 bg-white/80 border border-amber-200 px-4 py-2.5 rounded-2xl">
+                    <MessageCircle size={14} className="text-amber-600" />
+                    <span className="text-sm font-bold text-amber-800">
+                      설문 응답: {surveyStats.feedbackCount}/{surveyStats.expectedTotal} 완료
+                    </span>
+                  </div>
+                  <div className="bg-white/80 border border-amber-200 px-3 py-2.5 rounded-2xl">
+                    <span className="text-sm font-bold text-amber-600">{surveyStats.completionRate}%</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Send Button */}
+              {!finalSent ? (
+                <motion.button
+                  onClick={() => setShowFinalConfirm(true)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full py-4 bg-gradient-to-r from-amber-400 to-yellow-500 text-white rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-amber-200/50 hover:shadow-xl transition-all"
+                >
+                  <Sparkles size={18} />
+                  최종 리포트 발송하기
+                </motion.button>
+              ) : (
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="w-full py-4 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm flex items-center justify-center gap-2 border border-amber-300"
+                >
+                  <Check size={18} />
+                  시그니처 리포트 발송 완료
+                </motion.div>
+              )}
+            </div>
+          </div>
+        </motion.div>
       </div>
+
+      {/* Final Report Confirm Modal */}
+      <AnimatePresence>
+        {showFinalConfirm && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFinalConfirm(false)}
+            />
+            <motion.div
+              className="fixed inset-x-4 bottom-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md z-[70] bg-white/95 backdrop-blur-xl border border-amber-200 rounded-[2rem] p-8 shadow-2xl"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25 }}
+            >
+              <div className="text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-full mb-5 border border-amber-200">
+                  <Sparkles size={28} className="text-amber-500" />
+                </div>
+
+                <h3 className="text-xl font-bold text-stone-700 mb-2">The Signature</h3>
+                <p className="text-sm text-stone-500 mb-6 leading-relaxed">
+                  모든 유저에게 최종 시그니처 리포트를<br />전송할까요?
+                </p>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowFinalConfirm(false)}
+                    className="flex-1 py-3.5 rounded-2xl text-sm font-bold bg-stone-100 text-stone-500 hover:bg-stone-200 transition-all"
+                  >
+                    취소
+                  </button>
+                  <motion.button
+                    onClick={handleSendFinalReport}
+                    disabled={isSendingFinal}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="flex-[2] py-3.5 rounded-2xl text-sm font-bold bg-gradient-to-r from-amber-400 to-yellow-500 text-white shadow-lg shadow-amber-200/50 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSendingFinal ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={16} />
+                    )}
+                    {isSendingFinal ? '발송 중...' : '발송하기'}
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Feedback Dispatch Modal */}
+      <AnimatePresence>
+        {showFeedbackModal && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFeedbackModal(false)}
+            />
+            <motion.div
+              className="fixed inset-x-4 bottom-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md z-[70] bg-white/95 backdrop-blur-xl border border-purple-200 rounded-[2rem] p-8 shadow-2xl"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25 }}
+            >
+              <div className="text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-violet-100 to-purple-100 rounded-full mb-5 border border-purple-200">
+                  <MessageCircle size={28} className="text-purple-500" />
+                </div>
+
+                <h3 className="text-xl font-bold text-stone-700 mb-2">인연의 잔상</h3>
+                <p className="text-sm text-stone-500 mb-6">
+                  방금 종료된 대화는 몇 번째 인연이었나요?
+                </p>
+
+                {/* Round Selection Grid */}
+                <div className="grid grid-cols-5 gap-2 mb-6">
+                  {[1, 2, 3, 4, 5].map((round) => (
+                    <motion.button
+                      key={round}
+                      onClick={() => setSelectedRound(round)}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className={`py-3 rounded-xl font-bold text-lg transition-all ${
+                        selectedRound === round
+                          ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg shadow-purple-200/50'
+                          : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                      }`}
+                    >
+                      {round}
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/* Send Button */}
+                {!feedbackSent ? (
+                  <motion.button
+                    onClick={handleSendFeedback}
+                    disabled={selectedRound === null || isSending}
+                    whileHover={selectedRound !== null ? { scale: 1.02 } : {}}
+                    whileTap={selectedRound !== null ? { scale: 0.98 } : {}}
+                    className={`w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                      selectedRound === null || isSending
+                        ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-lg shadow-purple-200/50 hover:shadow-xl'
+                    }`}
+                  >
+                    {isSending ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <Send size={18} />
+                    )}
+                    {isSending ? '발송 중...' : `${selectedRound ? selectedRound + '회차 ' : ''}인연의 잔상 발송`}
+                  </motion.button>
+                ) : (
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="w-full py-4 rounded-2xl bg-emerald-100 text-emerald-600 font-bold text-sm flex items-center justify-center gap-2 border border-emerald-200"
+                  >
+                    <Check size={18} />
+                    {selectedRound}회차 발송 완료
+                  </motion.div>
+                )}
+
+                {/* Close Button */}
+                <button
+                  onClick={() => setShowFeedbackModal(false)}
+                  className="mt-4 text-sm text-stone-400 hover:text-stone-600 transition-colors"
+                >
+                  닫기
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
