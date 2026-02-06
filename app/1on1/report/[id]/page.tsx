@@ -8,6 +8,16 @@ import {
   Sparkles, Search, Heart, ShieldCheck, AlertCircle, RefreshCcw,
   MessageCircle, Users, Link2, Fingerprint, Star
 } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const SolarSystem3D = dynamic(() => import("./SolarSystem3D"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-[420px] bg-[#070714] rounded-[2rem] flex items-center justify-center">
+      <div className="text-indigo-400 text-sm animate-pulse">우주를 생성하는 중...</div>
+    </div>
+  ),
+});
 
 // [V6.4] 가치관 축 정의 (Keyword Polarity - 4글자 이내)
 const VALUE_AXES = [
@@ -90,34 +100,6 @@ export default function UserReportPage({ params }: { params: any }) {
   const [selectedPlanet, setSelectedPlanet] = useState<{ index: number; isMatch: boolean } | null>(null);
   // [V6.1] 외행성 (Top 3 외 나머지 인원)
   const [outerPlanets, setOuterPlanets] = useState<{ id: string; nickname: string }[]>([]);
-
-  // [V7] 3D 솔라 시스템 드래그 회전
-  const [rotation, setRotation] = useState({ x: 20, y: 0 });
-  const isDragging3D = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0, rotX: 0, rotY: 0 });
-
-  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    isDragging3D.current = true;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    dragStart.current = { x: clientX, y: clientY, rotX: rotation.x, rotY: rotation.y };
-  }, [rotation]);
-
-  const handleDragMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDragging3D.current) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    const dx = clientX - dragStart.current.x;
-    const dy = clientY - dragStart.current.y;
-    setRotation({
-      x: Math.max(-45, Math.min(45, dragStart.current.rotX - dy * 0.3)),
-      y: dragStart.current.rotY + dx * 0.3,
-    });
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    isDragging3D.current = false;
-  }, []);
 
   const isCalculating = useRef(false);
   const hasFinished = useRef(false);
@@ -398,212 +380,42 @@ export default function UserReportPage({ params }: { params: any }) {
       </motion.header>
 
       <section className="max-w-xl mx-auto px-6 space-y-10">
-        {/* [V6.1] 솔라 시스템: 인연의 우주 (Hierarchical Solar System) - 메인 비주얼 ONLY */}
+        {/* [V7] 3D 솔라 시스템 - Three.js */}
         <motion.div
-          className="bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900 border border-indigo-700 rounded-[2.5rem] p-6 shadow-2xl overflow-hidden"
+          className="rounded-[2.5rem] shadow-2xl overflow-hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-          <div className="flex items-center gap-2 mb-4">
-            <Sparkles size={18} className="text-amber-300" />
-            <span className="text-[10px] font-sans font-black uppercase tracking-widest text-amber-300">The Solar System</span>
+          <div className="bg-[#070714] px-6 pt-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles size={18} className="text-amber-300" />
+              <span className="text-[10px] font-sans font-black uppercase tracking-widest text-amber-300">The Solar System</span>
+            </div>
+            <h3 className="text-xl font-bold mb-2 text-white">{user?.nickname}님의 인력</h3>
+            <p className="text-sm text-indigo-300 mb-4">드래그하여 우주를 둘러보세요. 행성을 탭하면 상세 리포트가 열립니다.</p>
           </div>
-          <h3 className="text-xl font-bold mb-2 text-white">{user?.nickname}님의 인력</h3>
-          <p className="text-sm text-indigo-300 mb-6">가까울수록 강력한 중력이 작용하는 매칭이에요. 행성을 클릭해 보세요.</p>
 
-          {/* 솔라 시스템 시각화 (3D) */}
-          <div className="relative h-96 flex items-center justify-center" style={{ perspective: '800px' }}>
-          <div
-            className="relative w-full h-full cursor-grab active:cursor-grabbing"
-            style={{
-              transformStyle: 'preserve-3d',
-              transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`,
-              transition: isDragging3D.current ? 'none' : 'transform 0.3s ease-out',
-            }}
-            onMouseDown={handleDragStart}
-            onMouseMove={handleDragMove}
-            onMouseUp={handleDragEnd}
-            onMouseLeave={handleDragEnd}
-            onTouchStart={handleDragStart}
-            onTouchMove={handleDragMove}
-            onTouchEnd={handleDragEnd}
-          >
-            {/* 내행성 궤도 링 (Top 3) */}
-            {[1, 2, 3].map((orbit) => (
-              <motion.div
-                key={orbit}
-                className="absolute rounded-full border border-indigo-700/50"
-                style={{
-                  width: `${100 * orbit / 3 + 10}%`,
-                  height: `${100 * orbit / 3 + 10}%`,
-                }}
-                initial={{ opacity: 0, scale: 0.5 }}
-                animate={{ opacity: 0.5, scale: 1 }}
-                transition={{ delay: 0.5 + orbit * 0.1 }}
-              />
-            ))}
-
-            {/* 외행성 궤도 링 (멀리) */}
-            <motion.div
-              className="absolute rounded-full border border-indigo-900/30"
-              style={{ width: '95%', height: '95%' }}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.3 }}
-              transition={{ delay: 0.8 }}
-            />
-
-            {/* 태양 (유저) */}
-            <motion.div
-              className="absolute z-20"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.6, type: "spring" }}
-            >
-              <div className="relative">
-                <motion.div
-                  className="w-10 h-10 bg-gradient-to-br from-amber-300 via-orange-400 to-amber-500 rounded-full shadow-[0_0_30px_rgba(251,191,36,0.5)]"
-                  animate={{
-                    boxShadow: [
-                      "0 0 20px rgba(251,191,36,0.4)",
-                      "0 0 40px rgba(251,191,36,0.7)",
-                      "0 0 20px rgba(251,191,36,0.4)"
-                    ]
-                  }}
-                  transition={{ duration: 3, repeat: Infinity }}
-                />
-                <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] text-amber-300 font-bold whitespace-nowrap">
-                  나 (The Sun)
-                </span>
-              </div>
-            </motion.div>
-
-            {/* [V6.1] 내행성 (Top 3) - 크고 가까움 */}
-            {solarPartners.map((partner, idx) => {
-              // V6.1 물리 계산식: 1위가 가장 크고 가까움
-              const rank = idx + 1;
-              const planetSize = 40 / rank; // 1위: 40px, 2위: 20px, 3위: 13px
-              const orbitDistance = 100 * rank / 3; // 1위: 33%, 2위: 66%, 3위: 100%
-              const angle = (idx / solarPartners.length) * Math.PI * 2 - Math.PI / 2;
-              const x = Math.cos(angle) * (orbitDistance / 2.5);
-              const y = Math.sin(angle) * (orbitDistance / 2.5);
-              const isSelected = selectedPlanet?.index === idx && selectedPlanet?.isMatch;
-              const planetColors = ["from-sky-400 to-blue-500", "from-rose-400 to-pink-500", "from-purple-400 to-violet-500"];
-
-              return (
-                <motion.div
-                  key={partner.id}
-                  className="absolute z-10 cursor-pointer"
-                  style={{ left: `calc(50% + ${x}%)`, top: `calc(50% + ${y}%)` }}
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.8 + idx * 0.15, type: "spring" }}
-                  onClick={() => setSelectedPlanet(isSelected ? null : { index: idx, isMatch: true })}
-                >
-                  {/* Gravity Line (선택 시) */}
-                  {isSelected && (
-                    <motion.svg
-                      className="absolute pointer-events-none"
-                      style={{
-                        width: '300px',
-                        height: '300px',
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        overflow: 'visible'
-                      }}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                    >
-                      <motion.line
-                        x1="150"
-                        y1="150"
-                        x2={150 - x * 3}
-                        y2={150 - y * 3}
-                        stroke="url(#gravityGradient)"
-                        strokeWidth="2"
-                        strokeDasharray="8 4"
-                        initial={{ pathLength: 0 }}
-                        animate={{ pathLength: 1 }}
-                        transition={{ duration: 0.5 }}
-                      />
-                      <defs>
-                        <linearGradient id="gravityGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#fbbf24" />
-                          <stop offset="100%" stopColor="#60a5fa" />
-                        </linearGradient>
-                      </defs>
-                    </motion.svg>
-                  )}
-
-                  <motion.div
-                    className={`relative bg-gradient-to-br ${planetColors[idx]} rounded-full shadow-lg transform -translate-x-1/2 -translate-y-1/2 ${
-                      isSelected ? 'ring-4 ring-white/50' : ''
-                    }`}
-                    style={{ width: planetSize, height: planetSize }}
-                    whileHover={{ scale: 1.2 }}
-                    whileTap={{ scale: 0.95 }}
-                    animate={isSelected ? { scale: [1, 1.1, 1] } : {}}
-                    transition={isSelected ? { duration: 1, repeat: Infinity } : {}}
-                  >
-                    {partner.isMutual && (
-                      <Heart size={Math.max(10, planetSize / 4)} fill="#fff" className="absolute -top-1 -right-1 text-white drop-shadow-lg" />
-                    )}
-                  </motion.div>
-                  <div className="absolute top-8 left-1/2 -translate-x-1/2 text-center whitespace-nowrap">
-                    <p className="text-[10px] text-white font-bold">{partner.nickname}</p>
-                    {partner.feedScore > 0 ? (
-                      <p className="text-[9px] text-indigo-300">{partner.score}%</p>
-                    ) : (
-                      <span className="text-[8px] px-1.5 py-0.5 bg-amber-500/80 text-white rounded-full">가치관 매칭</span>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
-
-            {/* [V6.1] 외행성 (나머지 인원) - 아주 멀리, 점 수준, 블러 */}
-            {outerPlanets.map((planet, idx) => {
-              const angle = (idx / Math.max(outerPlanets.length, 1)) * Math.PI * 2 + Math.PI / 4;
-              const x = Math.cos(angle) * 45; // 아주 멀리 (45%)
-              const y = Math.sin(angle) * 45;
-              const isSelected = selectedPlanet?.index === idx && !selectedPlanet?.isMatch;
-
-              return (
-                <motion.div
-                  key={planet.id}
-                  className="absolute z-5 cursor-pointer"
-                  style={{ left: `calc(50% + ${x}%)`, top: `calc(50% + ${y}%)` }}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 0.4 }}
-                  transition={{ delay: 1.2 + idx * 0.05 }}
-                  onClick={() => setSelectedPlanet(isSelected ? null : { index: idx, isMatch: false })}
-                >
-                  <motion.div
-                    className="w-2 h-2 bg-indigo-400/50 rounded-full transform -translate-x-1/2 -translate-y-1/2 blur-[1px]"
-                    whileHover={{ scale: 1.5, opacity: 0.8 }}
-                  />
-                  <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[7px] text-indigo-500/50 whitespace-nowrap blur-[0.5px]">
-                    {planet.nickname}
-                  </span>
-                </motion.div>
-              );
-            })}
-          </div>{/* close 3D inner */}
-          </div>{/* close perspective wrapper */}
+          <SolarSystem3D
+            solarPartners={solarPartners}
+            outerPlanets={outerPlanets}
+            selectedPlanet={selectedPlanet}
+            setSelectedPlanet={setSelectedPlanet}
+            nickname={user?.nickname}
+          />
 
           {/* 범례 */}
-          <div className="flex justify-center gap-4 text-[10px] mt-4">
+          <div className="flex justify-center gap-4 text-[10px] py-4 bg-[#070714]">
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 bg-gradient-to-br from-amber-300 to-orange-400 rounded-full" />
               <span className="text-amber-300">나</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 bg-gradient-to-br from-sky-400 to-blue-500 rounded-full" />
-              <span className="text-sky-300">내행성 (Top3)</span>
+              <span className="text-sky-300">내행성</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 bg-indigo-400/50 rounded-full blur-[0.5px]" />
+              <div className="w-1.5 h-1.5 bg-indigo-400/50 rounded-full" />
               <span className="text-indigo-400/50">외행성</span>
             </div>
           </div>
