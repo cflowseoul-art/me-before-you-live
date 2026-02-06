@@ -10,6 +10,26 @@ import { DESIGN_TOKENS } from "@/lib/design-tokens";
 
 const { colors, borderRadius } = DESIGN_TOKENS;
 
+// 가치관 → 축 키워드 뱃지 매핑
+const VALUE_BADGE: Record<string, { keyword: string; opposite: string; axis: string }> = {
+  "원하는 것을 살 수 있는 풍요": { keyword: "풍요", opposite: "사랑", axis: "우선순위" },
+  "사랑하는 사람과 함께하는 시간": { keyword: "사랑", opposite: "풍요", axis: "우선순위" },
+  "지금 당장 누리는 확실한 행복": { keyword: "지금", opposite: "미래", axis: "시간관" },
+  "더 큰 미래를 위한 인내": { keyword: "미래", opposite: "지금", axis: "시간관" },
+  "안정적이고 평온한 일상": { keyword: "안정", opposite: "도전", axis: "라이프" },
+  "새로운 경험과 짜릿한 도전": { keyword: "도전", opposite: "안정", axis: "라이프" },
+  "모두에게 인정받는 성공": { keyword: "성공", opposite: "여유", axis: "성취" },
+  "나만의 속도로 걷는 여유": { keyword: "여유", opposite: "성공", axis: "성취" },
+  "냉철하고 합리적인 판단": { keyword: "이성", opposite: "공감", axis: "판단" },
+  "깊이 공감하는 따뜻한 마음": { keyword: "공감", opposite: "이성", axis: "판단" },
+  "눈에 보이는 압도적 성과": { keyword: "성과", opposite: "과정", axis: "목표" },
+  "함께 걷는 과정의 유대감": { keyword: "과정", opposite: "성과", axis: "목표" },
+  "누구와도 차별화된 나만의 개성": { keyword: "개성", opposite: "소속", axis: "정체성" },
+  "모두와 어우러지는 소속감": { keyword: "소속", opposite: "개성", axis: "정체성" },
+  "오롯이 나에게 집중하는 자유": { keyword: "자유", opposite: "헌신", axis: "관계" },
+  "소중한 사람을 위한 헌신": { keyword: "헌신", opposite: "자유", axis: "관계" },
+};
+
 export default function AuctionPage() {
   const router = useRouter();
   const [activeItem, setActiveItem] = useState<any>(null);
@@ -378,7 +398,14 @@ export default function AuctionPage() {
                         ) : (
                           <div className={`w-1.5 h-1.5 rounded-full ${item.status === "active" ? "animate-pulse" : ""}`} style={{ backgroundColor: item.status === "active" ? colors.accent : colors.soft }} />
                         )}
-                        <span className={`text-sm font-medium ${item.status === "finished" && !isMyWin ? "line-through" : ""}`}>{item.title}</span>
+                        <div className="flex flex-col">
+                          <span className={`text-sm font-medium ${item.status === "finished" && !isMyWin ? "line-through" : ""}`}>{item.title}</span>
+                          {VALUE_BADGE[item.title] && (
+                            <span className="text-[9px] font-sans mt-0.5" style={{ color: colors.muted }}>
+                              {VALUE_BADGE[item.title].keyword} ↔ {VALUE_BADGE[item.title].opposite}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {isMyWin && <span className="text-[9px] font-black px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.accent, color: 'white' }}>낙찰</span>}
@@ -397,6 +424,17 @@ export default function AuctionPage() {
                 <motion.div key={activeItem.id} className="w-full max-w-xl" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}>
                   <div className="bg-white p-12 shadow-[0_40px_100px_rgba(0,0,0,0.03)] text-center relative overflow-hidden" style={{ borderRadius: "3.5rem", border: `1px solid ${colors.soft}` }}>
                     <p className="text-[10px] font-sans font-black tracking-[0.4em] mb-4 uppercase italic" style={{ color: `${colors.accent}99` }}>Auction Now</p>
+                    {VALUE_BADGE[activeItem.title] && (
+                      <div className="flex items-center justify-center gap-1.5 mb-4">
+                        <span className="text-xs font-sans font-bold px-2.5 py-1 rounded-full" style={{ backgroundColor: `${colors.accent}15`, color: colors.accent }}>
+                          {VALUE_BADGE[activeItem.title].keyword}
+                        </span>
+                        <span className="text-[10px] font-sans" style={{ color: colors.muted }}>↔</span>
+                        <span className="text-xs font-sans px-2.5 py-1 rounded-full" style={{ backgroundColor: `${colors.soft}`, color: colors.muted }}>
+                          {VALUE_BADGE[activeItem.title].opposite}
+                        </span>
+                      </div>
+                    )}
                     <h1 className="text-5xl font-medium italic tracking-tighter mb-12 leading-none break-all py-2 break-keep">{activeItem.title}</h1>
                     <div className="py-10 mb-8 shadow-inner" style={{ backgroundColor: `${colors.paper}50`, borderRadius: borderRadius.onboarding, border: `1px solid ${colors.paper}` }}>
                       <p className="text-[10px] font-sans font-black tracking-widest mb-2 uppercase italic" style={{ color: colors.muted }}>현재 최고가</p>

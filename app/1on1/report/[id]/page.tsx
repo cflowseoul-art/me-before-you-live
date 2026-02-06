@@ -71,6 +71,25 @@ const CHEAT_SHEET: Record<string, string> = {
   "소중한 사람을 위한 헌신": "상대방을 위한 서프라이즈가 성공했을 때의 희열, 함께 나눠보세요!",
 };
 
+const CHEAT_SHEET_2: Record<string, string> = {
+  "원하는 것을 살 수 있는 풍요": "인생에서 가장 만족스러운 소비 하나만 꼽는다면요?",
+  "사랑하는 사람과 함께하는 시간": "가장 기억에 남는 '같이 보낸 시간'은 어떤 순간이었어요?",
+  "지금 당장 누리는 확실한 행복": "오늘 하루 중 가장 행복한 순간은 보통 언제인가요?",
+  "더 큰 미래를 위한 인내": "10년 뒤의 나에게 편지를 쓴다면 뭐라고 할 것 같아요?",
+  "안정적이고 평온한 일상": "가장 편안함을 느끼는 장소나 루틴이 있나요?",
+  "새로운 경험과 짜릿한 도전": "최근에 해봐서 좋았던 새로운 경험이 있어요?",
+  "모두에게 인정받는 성공": "지금까지 가장 뿌듯했던 나만의 성취가 있다면?",
+  "나만의 속도로 걷는 여유": "혼자만의 시간이 생기면 가장 먼저 뭘 하세요?",
+  "냉철하고 합리적인 판단": "최근에 내린 가장 현명한 결정은 뭐였어요?",
+  "깊이 공감하는 따뜻한 마음": "누군가의 작은 배려에 감동받은 적 있어요?",
+  "눈에 보이는 압도적 성과": "남몰래 자랑스러운 나만의 기록이 있나요?",
+  "함께 걷는 과정의 유대감": "함께라서 더 즐거웠던 경험이 있다면 들려주세요!",
+  "누구와도 차별화된 나만의 개성": "친구들이 '너답다'라고 말하는 순간이 있다면?",
+  "모두와 어우러지는 소속감": "소속감이 가장 크게 느껴졌던 순간은 언제였어요?",
+  "오롯이 나에게 집중하는 자유": "온전히 나만의 하루가 주어진다면 어떻게 보낼 거예요?",
+  "소중한 사람을 위한 헌신": "누군가를 위해 기꺼이 포기할 수 있는 게 있다면?",
+};
+
 export default function UserReportPage({ params }: { params: any }) {
   const [user, setUser] = useState<any>(null);
   const [matches, setMatches] = useState<any[]>([]);
@@ -90,11 +109,14 @@ export default function UserReportPage({ params }: { params: any }) {
     topValue: string;        // [V6.5] 상대방의 top_value (가장 높은 bid)
     topValueKeyword: string; // [V6.5] top_value의 4글자 키워드
     cheatSheet: string;      // [V6.5] 맞춤 대화 질문
+    cheatSheet2: string;     // 맞춤 대화 질문 2
     commonValues: string[];
     isMutual: boolean;
     rareCount?: number;      // 희소성 카운트
     partnerBids: { itemName: string; amount: number }[];  // [V6.4] 파트너 bid 데이터
     feedScore: number;       // [V6.6] Visual Score (0점 처리용)
+    myHeartsToPartner: number;       // 내가 상대방에게 보낸 하트 수
+    partnerLikedMyPhotos: string[];  // 상대방이 좋아한 내 사진 photo_id (Drive file ID)
   }[]>([]);
   const [myBidsData, setMyBidsData] = useState<{ itemName: string; amount: number }[]>([]);  // [V6.4] 내 bid 데이터
   const [selectedPlanet, setSelectedPlanet] = useState<{ index: number; isMatch: boolean } | null>(null);
@@ -146,11 +168,12 @@ export default function UserReportPage({ params }: { params: any }) {
       }
 
       // ─── 데이터 소스 일원화: matches 테이블에서 공식 결과 조회 ───
-      const [usersRes, matchesRes, bidsRes, itemsRes] = await Promise.all([
+      const [usersRes, matchesRes, bidsRes, itemsRes, feedLikesRes] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("matches").select("*").eq("user1_id", uid).order("compatibility_score", { ascending: false }),
         supabase.from("bids").select("*"),
-        supabase.from("auction_items").select("*")
+        supabase.from("auction_items").select("*"),
+        supabase.from("feed_likes").select("user_id, target_user_id, photo_id")
       ]);
 
       if (usersRes.error) throw new Error("데이터를 연동할 수 없습니다.");
@@ -159,6 +182,7 @@ export default function UserReportPage({ params }: { params: any }) {
       const matchRows = matchesRes.data || [];
       const allBids = bidsRes.data || [];
       const items = itemsRes.data || [];
+      const allFeedLikes = feedLikesRes.data || [];
 
       if (matchRows.length === 0) throw new Error("아직 매칭 결과가 생성되지 않았습니다. 관리자에게 문의하세요.");
 
@@ -169,12 +193,15 @@ export default function UserReportPage({ params }: { params: any }) {
       const myGender = me.gender?.trim() || "";
       const target = (myGender === "여성" || myGender === "여" || myGender === "F") ? "남성" : "여성";
 
-      // [V6.4] 내 전체 bid 데이터 저장 (Value Spectrum용)
+      // [V6.4] 내 전체 bid 데이터 저장 (Value Spectrum용) - 아이템별 누적 합산
       const myBids = allBids.filter(b => String(b.user_id) === String(uid));
-      const myBidsWithNames = myBids.map(b => {
+      const myBidsMap = new Map<string, number>();
+      myBids.forEach(b => {
         const item = items.find(i => i.id === b.auction_item_id);
-        return { itemName: item?.title || "", amount: b.amount };
+        const name = item?.title || "";
+        if (name) myBidsMap.set(name, (myBidsMap.get(name) || 0) + (b.amount || 0));
       });
+      const myBidsWithNames = Array.from(myBidsMap, ([itemName, amount]) => ({ itemName, amount }));
       setMyBidsData(myBidsWithNames);
 
       // ─── matches 테이블 → scoredMatches 변환 ───
@@ -202,18 +229,22 @@ export default function UserReportPage({ params }: { params: any }) {
       // ─── 솔라 시스템 파트너 데이터 생성 (match_data 기반) ───
       if (scoredMatches.length > 0) {
         const solarData = scoredMatches.map((match, idx) => {
-          // 파트너 bid 데이터 추출 (Value Spectrum용)
+          // 파트너 bid 데이터 추출 (Value Spectrum용) - 아이템별 누적 합산
           const partnerBidsRaw = allBids.filter(b => String(b.user_id) === String(match.id));
-          const partnerBidsWithNames = partnerBidsRaw.map(b => {
+          const partnerBidsMap = new Map<string, number>();
+          partnerBidsRaw.forEach(b => {
             const item = items.find(i => i.id === b.auction_item_id);
-            return { itemName: item?.title || "", amount: b.amount };
+            const name = item?.title || "";
+            if (name) partnerBidsMap.set(name, (partnerBidsMap.get(name) || 0) + (b.amount || 0));
           });
+          const partnerBidsWithNames = Array.from(partnerBidsMap, ([itemName, amount]) => ({ itemName, amount }));
 
           // top_value: 서버 저장값 우선, 없으면 bids에서 계산
           const topValue = match.partnerTopValue ||
             ([...partnerBidsWithNames].sort((a, b) => b.amount - a.amount)[0]?.itemName || "");
           const topValueKeyword = VALUE_TO_KEYWORD[topValue] || "";
           const cheatSheet = CHEAT_SHEET[topValue] || "";
+          const cheatSheet2 = CHEAT_SHEET_2[topValue] || "";
 
           // V6.7 coreFact: 희소성 vs 대중성 비율 판별
           const coreFact = generateCoreFact(
@@ -223,6 +254,16 @@ export default function UserReportPage({ params }: { params: any }) {
             match.totalUsers
           );
           const rarestKeyword = VALUE_TO_KEYWORD[match.rarestCommonValue] || match.rarestCommonValue;
+
+          // 상대방이 좋아한 내 사진 (feed_likes에서 user_id=partner, target_user_id=me)
+          const partnerLikedMyPhotos = allFeedLikes
+            .filter(l => String(l.user_id) === String(match.id) && String(l.target_user_id) === String(uid))
+            .map(l => l.photo_id);
+
+          // 내가 상대방에게 보낸 하트 수
+          const myHeartsToPartner = allFeedLikes
+            .filter(l => String(l.user_id) === String(uid) && String(l.target_user_id) === String(match.id))
+            .length;
 
           return {
             id: match.id,
@@ -236,11 +277,14 @@ export default function UserReportPage({ params }: { params: any }) {
             topValue,
             topValueKeyword,
             cheatSheet,
+            cheatSheet2,
             commonValues: match.commonValues,
             isMutual: match.isMutual,
             rareCount: match.rarestCount,
             partnerBids: partnerBidsWithNames,
             feedScore: match.feedScore,
+            myHeartsToPartner,
+            partnerLikedMyPhotos,
           };
         });
 
@@ -404,9 +448,25 @@ export default function UserReportPage({ params }: { params: any }) {
                 <p className="text-sm text-indigo-700 leading-relaxed break-keep font-medium">
                   {solarPartners[selectedPlanet.index].pullFactor.coreFact}
                 </p>
+                <ul className="text-xs text-indigo-400 mt-3 space-y-1 list-none">
+                  <li className="flex items-start gap-1.5">
+                    <span className="mt-[3px] w-1 h-1 rounded-full bg-indigo-300 shrink-0" />
+                    가치관 {solarPartners[selectedPlanet.index].commonValues?.length ?? 0}개 일치
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="mt-[3px] w-1 h-1 rounded-full bg-indigo-300 shrink-0" />
+                    나→상대 하트 {solarPartners[selectedPlanet.index].myHeartsToPartner ?? 0}개
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <span className="mt-[3px] w-1 h-1 rounded-full bg-indigo-300 shrink-0" />
+                    상대→나 하트 {solarPartners[selectedPlanet.index].partnerLikedMyPhotos?.length ?? 0}개
+                  </li>
+                </ul>
                 {solarPartners[selectedPlanet.index].commonValues.length === 0 && (
                   <p className="text-xs text-indigo-500 mt-2">
-                    오늘 이 테이블에서 가장 닮은 취향을 가진 분이에요.
+                    {(solarPartners[selectedPlanet.index].myHeartsToPartner > 0 || (solarPartners[selectedPlanet.index].partnerLikedMyPhotos?.length ?? 0) > 0)
+                      ? "같은 취향 다른 가치관을 가진 상대네요! 맞춰갈 수 있을 지 대화를 통해 알아가봐요."
+                      : "오늘 이 테이블에서 가장 닮은 취향을 가진 분이에요."}
                   </p>
                 )}
               </div>
@@ -419,12 +479,46 @@ export default function UserReportPage({ params }: { params: any }) {
                     <span className="text-[10px] font-sans font-black uppercase tracking-widest text-emerald-600">맞춤 대화 가이드</span>
                   </div>
                   <p className="text-xs text-emerald-600 mb-3">
-                    상대방의 "{solarPartners[selectedPlanet.index].topValueKeyword}" 가치를 공략할 첫 질문:
+                    상대방의 "{solarPartners[selectedPlanet.index].topValueKeyword}" 가치를 공략할 질문:
                   </p>
-                  <div className="bg-white/80 border border-emerald-100 rounded-xl p-4">
-                    <p className="text-base text-emerald-800 font-medium leading-relaxed break-keep">
-                      "{solarPartners[selectedPlanet.index].cheatSheet}"
-                    </p>
+                  <div className="space-y-2">
+                    <div className="bg-white/80 border border-emerald-100 rounded-xl p-4">
+                      <p className="text-base text-emerald-800 font-medium leading-relaxed break-keep">
+                        "{solarPartners[selectedPlanet.index].cheatSheet}"
+                      </p>
+                    </div>
+                    <div className="bg-white/80 border border-emerald-100 rounded-xl p-4">
+                      <p className="text-base text-emerald-800 font-medium leading-relaxed break-keep">
+                        "{solarPartners[selectedPlanet.index].cheatSheet2}"
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 상대방이 좋아한 내 사진 */}
+              {(solarPartners[selectedPlanet.index].partnerLikedMyPhotos?.length ?? 0) > 0 && (
+                <div className="bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-100 rounded-2xl p-5 mt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Heart size={14} className="text-rose-400" />
+                    <span className="text-[10px] font-sans font-black uppercase tracking-widest text-rose-400">LIKED PHOTOS</span>
+                  </div>
+                  <p className="text-xs text-rose-400 mb-3">
+                    {solarPartners[selectedPlanet.index].nickname}님이 피드에서 좋아한 내 사진
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {solarPartners[selectedPlanet.index].partnerLikedMyPhotos.map((photoId) => (
+                      <div key={photoId} className="relative aspect-square rounded-xl overflow-hidden border-2 border-white shadow-sm">
+                        <img
+                          src={`https://drive.google.com/thumbnail?id=${photoId}&sz=w400`}
+                          alt="liked photo"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute bottom-1 right-1 bg-white/80 rounded-full p-1">
+                          <Heart size={12} className="text-rose-500" fill="#f43f5e" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -457,19 +551,21 @@ export default function UserReportPage({ params }: { params: any }) {
                     const hasPartnerData = partnerBidA || partnerBidB;
                     if (!hasMyData && !hasPartnerData) return null;
 
-                    // 점수 계산 (0-100 스케일로 정규화, A쪽이 0, B쪽이 100)
+                    // 점수 계산 (절대 금액 기반 - 많이 쓸수록 해당 방향으로 더 이동)
                     const myScoreA = myBidA?.amount || 0;
                     const myScoreB = myBidB?.amount || 0;
-                    const myTotal = myScoreA + myScoreB;
-                    const myPosition = myTotal > 0 ? (myScoreB / myTotal) * 100 : 50;
+                    const myMaxBid = Math.max(...myBidsData.map(b => b.amount), 1);
+                    const myPosition = 50 + ((myScoreB - myScoreA) / (2 * myMaxBid)) * 100;
 
                     const partnerScoreA = partnerBidA?.amount || 0;
                     const partnerScoreB = partnerBidB?.amount || 0;
-                    const partnerTotal = partnerScoreA + partnerScoreB;
-                    const partnerPosition = partnerTotal > 0 ? (partnerScoreB / partnerTotal) * 100 : 50;
+                    const partnerMaxBid = Math.max(...partnerBids.map(b => b.amount), 1);
+                    const partnerPosition = 50 + ((partnerScoreB - partnerScoreA) / (2 * partnerMaxBid)) * 100;
 
-                    // Resonance: 두 점수 차이가 15 미만이면 활성화 (둘 다 데이터가 있는 경우만)
-                    const isResonance = (hasMyData && hasPartnerData) && Math.abs(myPosition - partnerPosition) < 15;
+                    // Resonance: 같은 항목에 양쪽 모두 입찰했으면 공명
+                    const bothBidOnA = (myBidA?.amount ?? 0) > 0 && (partnerBidA?.amount ?? 0) > 0;
+                    const bothBidOnB = (myBidB?.amount ?? 0) > 0 && (partnerBidB?.amount ?? 0) > 0;
+                    const isResonance = bothBidOnA || bothBidOnB;
 
                     return (
                       <motion.div

@@ -6,6 +6,26 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { Activity, Trophy, History, Settings, Play, RotateCcw, RefreshCw, Heart, LayoutDashboard } from "lucide-react";
 
+// 가치관 → 축 키워드 뱃지 매핑
+const VALUE_BADGE: Record<string, { keyword: string; opposite: string }> = {
+  "원하는 것을 살 수 있는 풍요": { keyword: "풍요", opposite: "사랑" },
+  "사랑하는 사람과 함께하는 시간": { keyword: "사랑", opposite: "풍요" },
+  "지금 당장 누리는 확실한 행복": { keyword: "지금", opposite: "미래" },
+  "더 큰 미래를 위한 인내": { keyword: "미래", opposite: "지금" },
+  "안정적이고 평온한 일상": { keyword: "안정", opposite: "도전" },
+  "새로운 경험과 짜릿한 도전": { keyword: "도전", opposite: "안정" },
+  "모두에게 인정받는 성공": { keyword: "성공", opposite: "여유" },
+  "나만의 속도로 걷는 여유": { keyword: "여유", opposite: "성공" },
+  "냉철하고 합리적인 판단": { keyword: "이성", opposite: "공감" },
+  "깊이 공감하는 따뜻한 마음": { keyword: "공감", opposite: "이성" },
+  "눈에 보이는 압도적 성과": { keyword: "성과", opposite: "과정" },
+  "함께 걷는 과정의 유대감": { keyword: "과정", opposite: "성과" },
+  "누구와도 차별화된 나만의 개성": { keyword: "개성", opposite: "소속" },
+  "모두와 어우러지는 소속감": { keyword: "소속", opposite: "개성" },
+  "오롯이 나에게 집중하는 자유": { keyword: "자유", opposite: "헌신" },
+  "소중한 사람을 위한 헌신": { keyword: "헌신", opposite: "자유" },
+};
+
 export default function AuctionDashboard() {
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
@@ -163,6 +183,17 @@ export default function AuctionDashboard() {
               <AnimatePresence mode="wait">
                 {activeItem ? (
                   <motion.div key={activeItem.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-1 md:gap-3">
+                    {VALUE_BADGE[activeItem.title] && (
+                      <div className="flex items-center gap-1 md:gap-1.5 mb-1 md:mb-2">
+                        <span className="text-[8px] md:text-xs font-sans font-bold px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full bg-[#A52A2A]/10 text-[#A52A2A]">
+                          {VALUE_BADGE[activeItem.title].keyword}
+                        </span>
+                        <span className="text-[8px] md:text-[10px] font-sans text-[#A52A2A]/30">↔</span>
+                        <span className="text-[8px] md:text-xs font-sans px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-full bg-[#EEEBDE] text-[#999]">
+                          {VALUE_BADGE[activeItem.title].opposite}
+                        </span>
+                      </div>
+                    )}
                     <h2 className="text-[11px] sm:text-base md:text-xl lg:text-2xl font-serif italic font-black line-clamp-2">{activeItem.title}</h2>
                     <p className="text-base sm:text-lg md:text-2xl lg:text-3xl font-black">{activeItem.current_bid?.toLocaleString()}<span className="text-[8px] md:text-xs font-serif italic ml-0.5 opacity-40">만</span></p>
                     <button onClick={() => handleFinishAuction(activeItem.id)} className="px-2 py-1 md:px-6 md:py-3 bg-[#A52A2A] text-white rounded-md md:rounded-xl text-[7px] md:text-[9px] font-black uppercase tracking-wider self-start">Finish</button>

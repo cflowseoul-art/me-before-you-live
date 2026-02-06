@@ -363,11 +363,9 @@ export async function POST(request: Request) {
             const ratio = Math.min(myBid, otherBid) / Math.max(myBid, otherBid);
             auctionScore += ratio * scarcityBonus;
 
-            // 공통 가치관 추출
-            if (ratio > 0.5) {
-              const item = items.find(it => it.id === itemIds[i]);
-              if (item?.title) commonValues.push(item.title);
-            }
+            // 공통 가치관 추출: 양쪽 모두 입찰했으면 공통 가치관
+            const item = items.find(it => it.id === itemIds[i]);
+            if (item?.title) commonValues.push(item.title);
           }
         }
 
@@ -425,7 +423,7 @@ export async function POST(request: Request) {
           auctionScore,
           feedScore,
           isMutual,
-          commonValues: commonValues.slice(0, 3),
+          commonValues: commonValues,
           hasVisualPenalty,
           firstActionTime,
           partnerTopValue
