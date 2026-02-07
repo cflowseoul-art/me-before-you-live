@@ -779,6 +779,7 @@ export default function FinalReportPage({ params }: { params: any }) {
               }
               setIsLoadingShare(true);
               try {
+                // 1) 기존 스냅샷에서 share_token 가져오기
                 const res = await fetch(`/api/report/${userId}`);
                 const data = await res.json();
                 if (data.success && data.snapshots?.signature?.share_token) {
@@ -787,8 +788,25 @@ export default function FinalReportPage({ params }: { params: any }) {
                   await navigator.clipboard.writeText(url);
                   setIsCopied(true);
                   setTimeout(() => setIsCopied(false), 2000);
+                } else if (reportData) {
+                  // 2) 스냅샷 없으면 현재 데이터로 생성
+                  const postRes = await fetch(`/api/report/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ snapshot_data: reportData, user }),
+                  });
+                  const postData = await postRes.json();
+                  if (postData.success && postData.share_token) {
+                    const url = `${window.location.origin}/share/${postData.share_token}`;
+                    setShareUrl(url);
+                    await navigator.clipboard.writeText(url);
+                    setIsCopied(true);
+                    setTimeout(() => setIsCopied(false), 2000);
+                  } else {
+                    alert("공유 링크를 생성할 수 없습니다.");
+                  }
                 } else {
-                  alert("공유 링크를 생성할 수 없습니다. 관리자에게 문의하세요.");
+                  alert("리포트 데이터가 없습니다.");
                 }
               } catch {
                 alert("공유 링크 생성 중 오류가 발생했습니다.");
