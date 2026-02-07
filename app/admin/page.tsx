@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { LayoutDashboard, Settings, LogOut, Lock, ImageIcon, Sparkles, Loader2, CheckCircle, AlertCircle, Heart, Eye } from "lucide-react";
+import { LayoutDashboard, Settings, LogOut, Lock, ImageIcon, Sparkles, Loader2, CheckCircle, AlertCircle, Heart, Eye, Send, XCircle, MessageCircle } from "lucide-react";
 import { DESIGN_TOKENS } from "@/lib/design-tokens";
 
 const { colors, borderRadius, transitions } = DESIGN_TOKENS;
@@ -17,10 +17,57 @@ export default function AdminGate() {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeResult, setFinalizeResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // 최종 리포트 발송 상태
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isSendingReport, setIsSendingReport] = useState(false);
+  const [surveyStats, setSurveyStats] = useState<{
+    feedbackCount: number;
+    matchedUserCount: number;
+    activeRound: number;
+    expectedTotal: number;
+    completionRate: number;
+  } | null>(null);
+
+  // 리포트 상태 조회
+  const fetchSurveyStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/final-report');
+      const data = await res.json();
+      if (data.success) {
+        setSurveyStats(data.survey);
+        setIsReportOpen(data.is_final_report_open);
+      }
+    } catch (e) {
+      console.error('Failed to fetch survey stats:', e);
+    }
+  }, []);
+
+  // 리포트 발송 / 취소
+  const handleReportToggle = useCallback(async (open: boolean) => {
+    if (isSendingReport) return;
+    setIsSendingReport(true);
+    try {
+      const res = await fetch('/api/admin/final-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ open }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsReportOpen(open);
+      }
+    } catch (e) {
+      console.error('Failed to toggle report:', e);
+    } finally {
+      setIsSendingReport(false);
+    }
+  }, [isSendingReport]);
+
   useEffect(() => {
     const auth = sessionStorage.getItem("admin_auth");
     if (auth === "true") setIsAuthenticated(true);
-  }, []);
+    fetchSurveyStats();
+  }, [fetchSurveyStats]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -294,6 +341,80 @@ export default function AdminGate() {
               <p className="text-[9px] opacity-60 uppercase tracking-widest font-sans mt-0.5 text-pink-300">View Match Results & MC Guide</p>
             </div>
           </motion.button>
+        </motion.div>
+
+        {/* 최종 리포트 발송 섹션 */}
+        <motion.div
+          className="pt-2"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7 }}
+        >
+          <div className="p-6 border border-amber-500/30 rounded-[2rem] bg-amber-500/10">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-500/20">
+                <Sparkles size={20} className="text-amber-400" />
+              </div>
+              <div className="text-left">
+                <p className="text-base font-bold text-amber-400">The Final Command</p>
+                <p className="text-[9px] opacity-60 uppercase tracking-widest font-sans mt-0.5 text-amber-300">시그니처 리포트 발송</p>
+              </div>
+            </div>
+
+            {/* 현재 상태 표시 */}
+            <div className="flex items-center gap-2 mb-4">
+              <div className={`w-2 h-2 rounded-full ${isReportOpen ? 'bg-emerald-400 animate-pulse' : 'bg-stone-500'}`} />
+              <span className="text-xs font-sans text-white/60">
+                {isReportOpen ? '발송됨 (유저 열람 가능)' : '미발송'}
+              </span>
+              {surveyStats && (
+                <span className="ml-auto text-xs font-sans text-amber-300/70 flex items-center gap-1">
+                  <MessageCircle size={11} />
+                  {surveyStats.feedbackCount}/{surveyStats.expectedTotal} ({surveyStats.completionRate}%)
+                </span>
+              )}
+            </div>
+
+            {/* 발송 취소 / 발송 버튼 */}
+            <div className="flex gap-3">
+              <motion.button
+                onClick={() => handleReportToggle(false)}
+                disabled={isSendingReport || !isReportOpen}
+                whileHover={!isSendingReport && isReportOpen ? { scale: 1.02 } : {}}
+                whileTap={!isSendingReport && isReportOpen ? { scale: 0.98 } : {}}
+                className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                  !isReportOpen || isSendingReport
+                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                    : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+                }`}
+              >
+                {isSendingReport && !isReportOpen ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <XCircle size={16} />
+                )}
+                발송 취소
+              </motion.button>
+              <motion.button
+                onClick={() => handleReportToggle(true)}
+                disabled={isSendingReport || isReportOpen}
+                whileHover={!isSendingReport && !isReportOpen ? { scale: 1.02 } : {}}
+                whileTap={!isSendingReport && !isReportOpen ? { scale: 0.98 } : {}}
+                className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                  isReportOpen || isSendingReport
+                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'
+                }`}
+              >
+                {isSendingReport && isReportOpen ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Send size={16} />
+                )}
+                발송
+              </motion.button>
+            </div>
+          </div>
         </motion.div>
 
         <motion.button

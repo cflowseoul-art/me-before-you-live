@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Loader2, Users, Settings, Play, RotateCcw, Timer, Volume2, Heart, Send, Check, MessageCircle, Sparkles } from "lucide-react";
+import { ChevronLeft, Loader2, Users, Settings, Play, RotateCcw, Timer, Volume2, Heart, Send, Check, MessageCircle } from "lucide-react";
 import confetti from "canvas-confetti";
 
 export default function Admin1on1Dashboard() {
@@ -24,18 +24,6 @@ export default function Admin1on1Dashboard() {
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
-
-  // Final report states
-  const [surveyStats, setSurveyStats] = useState<{
-    feedbackCount: number;
-    matchedUserCount: number;
-    activeRound: number;
-    expectedTotal: number;
-    completionRate: number;
-  } | null>(null);
-  const [showFinalConfirm, setShowFinalConfirm] = useState(false);
-  const [isSendingFinal, setIsSendingFinal] = useState(false);
-  const [finalSent, setFinalSent] = useState(false);
 
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -231,42 +219,6 @@ export default function Admin1on1Dashboard() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Fetch survey stats for final report section
-  const fetchSurveyStats = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/final-report');
-      const data = await res.json();
-      if (data.success) {
-        setSurveyStats(data.survey);
-        if (data.is_final_report_open) setFinalSent(true);
-      }
-    } catch (e) {
-      console.error('Failed to fetch survey stats:', e);
-    }
-  }, []);
-
-  // Send final report
-  const handleSendFinalReport = useCallback(async () => {
-    if (isSendingFinal) return;
-    setIsSendingFinal(true);
-    try {
-      const res = await fetch('/api/admin/final-report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ open: true }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setFinalSent(true);
-        setShowFinalConfirm(false);
-      }
-    } catch (e) {
-      console.error('Failed to send final report:', e);
-    } finally {
-      setIsSendingFinal(false);
-    }
-  }, [isSendingFinal]);
-
   // Fetch match count
   useEffect(() => {
     const fetchData = async () => {
@@ -277,22 +229,14 @@ export default function Admin1on1Dashboard() {
     };
 
     fetchData();
-    fetchSurveyStats();
 
     const channel = supabase
       .channel("admin_1on1_dashboard_sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, fetchData)
       .subscribe();
 
-    // Realtime for conversation_feedback count updates
-    const feedbackChannel = supabase
-      .channel("admin_feedback_stats")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_feedback" }, fetchSurveyStats)
-      .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
-      supabase.removeChannel(feedbackChannel);
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
@@ -519,125 +463,7 @@ export default function Admin1on1Dashboard() {
           </div>
         </motion.div>
 
-        {/* The Final Command Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="w-full max-w-2xl mt-8"
-        >
-          <div className="bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-[2.5rem] p-8 shadow-[0_8px_30px_rgb(245,158,11,0.1)] relative overflow-hidden">
-            {/* Decorative gradient */}
-            <div className="absolute inset-0 bg-gradient-to-br from-amber-100/30 via-transparent to-yellow-100/20 pointer-events-none" />
-
-            <div className="relative z-10">
-              {/* Header */}
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-200 to-yellow-200 border border-amber-300">
-                  <Sparkles size={22} className="text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-amber-900">The Final Command</h3>
-                  <p className="text-xs text-amber-600">최종 시그니처 리포트 발송</p>
-                </div>
-              </div>
-
-              {/* Survey Stats Badge */}
-              {surveyStats && (
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="flex items-center gap-2 bg-white/80 border border-amber-200 px-4 py-2.5 rounded-2xl">
-                    <MessageCircle size={14} className="text-amber-600" />
-                    <span className="text-sm font-bold text-amber-800">
-                      설문 응답: {surveyStats.feedbackCount}/{surveyStats.expectedTotal} 완료
-                    </span>
-                  </div>
-                  <div className="bg-white/80 border border-amber-200 px-3 py-2.5 rounded-2xl">
-                    <span className="text-sm font-bold text-amber-600">{surveyStats.completionRate}%</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Send Button */}
-              {!finalSent ? (
-                <motion.button
-                  onClick={() => setShowFinalConfirm(true)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full py-4 bg-gradient-to-r from-amber-400 to-yellow-500 text-white rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-amber-200/50 hover:shadow-xl transition-all"
-                >
-                  <Sparkles size={18} />
-                  최종 리포트 발송하기
-                </motion.button>
-              ) : (
-                <motion.div
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="w-full py-4 rounded-2xl bg-amber-100 text-amber-700 font-bold text-sm flex items-center justify-center gap-2 border border-amber-300"
-                >
-                  <Check size={18} />
-                  시그니처 리포트 발송 완료
-                </motion.div>
-              )}
-            </div>
-          </div>
-        </motion.div>
       </div>
-
-      {/* Final Report Confirm Modal */}
-      <AnimatePresence>
-        {showFinalConfirm && (
-          <>
-            <motion.div
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowFinalConfirm(false)}
-            />
-            <motion.div
-              className="fixed inset-x-4 bottom-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md z-[70] bg-white/95 backdrop-blur-xl border border-amber-200 rounded-[2rem] p-8 shadow-2xl"
-              initial={{ opacity: 0, y: 100 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 100 }}
-              transition={{ type: "spring", damping: 25 }}
-            >
-              <div className="text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-full mb-5 border border-amber-200">
-                  <Sparkles size={28} className="text-amber-500" />
-                </div>
-
-                <h3 className="text-xl font-bold text-stone-700 mb-2">The Signature</h3>
-                <p className="text-sm text-stone-500 mb-6 leading-relaxed">
-                  모든 유저에게 최종 시그니처 리포트를<br />전송할까요?
-                </p>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowFinalConfirm(false)}
-                    className="flex-1 py-3.5 rounded-2xl text-sm font-bold bg-stone-100 text-stone-500 hover:bg-stone-200 transition-all"
-                  >
-                    취소
-                  </button>
-                  <motion.button
-                    onClick={handleSendFinalReport}
-                    disabled={isSendingFinal}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex-[2] py-3.5 rounded-2xl text-sm font-bold bg-gradient-to-r from-amber-400 to-yellow-500 text-white shadow-lg shadow-amber-200/50 flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isSendingFinal ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Sparkles size={16} />
-                    )}
-                    {isSendingFinal ? '발송 중...' : '발송하기'}
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
 
       {/* Feedback Dispatch Modal */}
       <AnimatePresence>
