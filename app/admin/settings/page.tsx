@@ -16,7 +16,9 @@ const { colors, borderRadius } = DESIGN_TOKENS;
 export default function AdminSettings() {
   const router = useRouter();
   const [phase, setPhase] = useState("");
-  const [session, setSession] = useState("01");
+  const [sessionDate, setSessionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [sessionNum, setSessionNum] = useState("01");
+  const [ratio, setRatio] = useState("5:5");
   const [users, setUsers] = useState<any[]>([]);
   const [showDriveModal, setShowDriveModal] = useState(false);
   const [targetUser, setTargetUser] = useState<any>(null);
@@ -32,18 +34,29 @@ export default function AdminSettings() {
   const [resetConfirmText, setResetConfirmText] = useState("");
 
   const fetchSettings = async () => {
+    let currentSession = '01';
     try {
       const res = await fetch('/api/admin/phase');
       const data = await res.json();
       if (data.success && data.settings) {
         setPhase(data.settings.current_phase || '');
-        setSession(data.settings.current_session || '01');
+        const raw = data.settings.current_session || '';
+        if (raw.includes('_')) {
+          const [d, n] = raw.split('_');
+          setSessionDate(d);
+          setSessionNum(n);
+        } else {
+          setSessionDate(new Date().toISOString().slice(0, 10));
+          setSessionNum(raw || '01');
+        }
+        setRatio(data.settings.session_ratio || '5:5');
+        currentSession = raw || `${new Date().toISOString().slice(0, 10)}_01`;
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
     }
 
-    const { data: u } = await supabase.from("users").select("*").order("created_at", { ascending: false });
+    const { data: u } = await supabase.from("users").select("*").eq("session_id", currentSession).order("created_at", { ascending: false });
     if (u) setUsers(u);
   };
 
@@ -135,7 +148,8 @@ export default function AdminSettings() {
     const phaseNames: any = {
       auction: "옥션 진행",
       feed: "갤러리(피드) 오픈",
-      report: "최종 리포트 발행"
+      report: "최종 리포트 발행",
+      completed: "세션 종료 (리포트 허브)"
     };
 
     if (!confirm(`[${phaseNames[v]}] 단계로 전환하시겠습니까? 모든 유저의 화면이 즉시 리다이렉트됩니다.`)) return;
@@ -218,23 +232,25 @@ export default function AdminSettings() {
     }
   };
 
-  const changeSession = async (v: string) => {
+  const saveSession = async () => {
     setIsSessionLoading(true);
     setSessionSuccess(false);
 
     try {
+      const composedSession = `${sessionDate}_${sessionNum}`;
       const res = await fetch('/api/admin/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: v })
+        body: JSON.stringify({ session: composedSession, ratio })
       });
 
       const result = await res.json();
       if (!result.success) throw new Error(result.error || 'Failed to update session');
 
-      setSession(v);
       setSessionSuccess(true);
       setTimeout(() => setSessionSuccess(false), 3000);
+      // 유저 목록을 새 세션 기준으로 다시 불러오기
+      await fetchSettings();
     } catch (err: any) {
       console.error('Session update error:', err);
       alert("회차 저장 중 오류가 발생했습니다: " + err.message);
@@ -249,9 +265,14 @@ export default function AdminSettings() {
     fetchSettings();
   };
 
+  // 특정 세션 초기화
+  const [resetTargetDate, setResetTargetDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [resetTargetNum, setResetTargetNum] = useState("01");
+
   const handleSessionReset = async () => {
-    if (resetConfirmText !== "초기화") {
-      alert("'초기화'를 정확히 입력해주세요.");
+    const targetSessionId = `${resetTargetDate}_${resetTargetNum}`;
+    if (resetConfirmText !== targetSessionId) {
+      alert(`'${targetSessionId}'를 정확히 입력해주세요.`);
       return;
     }
 
@@ -259,13 +280,14 @@ export default function AdminSettings() {
     try {
       const res = await fetch('/api/admin/reset', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: targetSessionId })
       });
 
       const result = await res.json();
       if (!result.success) throw new Error(result.error || 'Reset failed');
 
-      alert("✅ 회차 초기화가 완료되었습니다.");
+      alert(`✅ ${result.message}`);
       setShowResetConfirm(false);
       setResetConfirmText("");
       fetchSettings();
@@ -313,8 +335,8 @@ export default function AdminSettings() {
             <span className="text-[8px] font-black uppercase text-red-400 font-sans">Live Sync Active</span>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          {['auction', 'feed', 'report'].map(p => (
+        <div className="grid grid-cols-4 gap-3">
+          {['auction', 'feed', 'report', 'completed'].map(p => (
             <motion.button
               key={p}
               onClick={() => changePhase(p)}
@@ -409,13 +431,30 @@ export default function AdminSettings() {
 
       {/* Current Session */}
       <motion.section className="bg-white p-7 mb-12 shadow-sm" style={{ borderRadius: "2.5rem", border: `1px solid ${colors.soft}` }}>
-        <h3 className="text-[9px] font-sans font-black tracking-[0.4em] uppercase mb-4 text-center italic" style={{ color: colors.accent }}>Current Session (회차)</h3>
-        <div className="flex items-center justify-center gap-3">
-          <input type="text" value={session} onChange={(e) => setSession(e.target.value)} disabled={isSessionLoading} className="w-20 text-center text-2xl font-black border-2 rounded-xl py-3 outline-none" style={{ borderColor: colors.soft }} />
+        <h3 className="text-[9px] font-sans font-black tracking-[0.4em] uppercase mb-3 text-center italic" style={{ color: colors.accent }}>Session Config</h3>
+        <p className="text-center text-xs mb-5" style={{ color: colors.muted }}>
+          현재: <span className="font-black" style={{ color: colors.accent }}>{sessionDate} {sessionNum}회차</span>
+          <span className="mx-2">·</span>
+          비율 <span className="font-black" style={{ color: colors.accent }}>{ratio}</span>
+        </p>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <div className="text-center">
+            <p className="text-[9px] font-sans font-black uppercase tracking-widest mb-2" style={{ color: colors.muted }}>날짜</p>
+            <input type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} disabled={isSessionLoading} className="w-[140px] text-center text-sm font-black border-2 rounded-xl py-3 outline-none" style={{ borderColor: colors.soft }} />
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] font-sans font-black uppercase tracking-widest mb-2" style={{ color: colors.muted }}>회차</p>
+            <input type="text" value={sessionNum} onChange={(e) => setSessionNum(e.target.value)} disabled={isSessionLoading} placeholder="01" className="w-14 text-center text-2xl font-black border-2 rounded-xl py-3 outline-none" style={{ borderColor: colors.soft }} />
+          </div>
+          <div className="text-xl font-thin mt-6" style={{ color: colors.soft }}>/</div>
+          <div className="text-center">
+            <p className="text-[9px] font-sans font-black uppercase tracking-widest mb-2" style={{ color: colors.muted }}>남 : 여</p>
+            <input type="text" value={ratio} onChange={(e) => setRatio(e.target.value)} disabled={isSessionLoading} placeholder="5:5" className="w-20 text-center text-2xl font-black border-2 rounded-xl py-3 outline-none" style={{ borderColor: colors.soft }} />
+          </div>
           <motion.button
-            onClick={() => changeSession(session)}
+            onClick={saveSession}
             disabled={isSessionLoading}
-            className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:cursor-not-allowed text-white`}
+            className="px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:cursor-not-allowed text-white mt-6"
             style={{ backgroundColor: sessionSuccess ? '#16a34a' : colors.primary }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -427,13 +466,43 @@ export default function AdminSettings() {
 
       {/* Attendee Management */}
       <motion.section className="space-y-4">
-        <h3 className="text-[10px] font-sans font-black tracking-[0.3em] uppercase italic mb-6" style={{ color: colors.muted }}>Attendee Management</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-[10px] font-sans font-black tracking-[0.3em] uppercase italic" style={{ color: colors.muted }}>Attendee Management</h3>
+          {(() => {
+            const [expM, expF] = ratio.split(":").map(Number);
+            const mCount = users.filter(u => u.gender === "남성").length;
+            const fCount = users.filter(u => u.gender === "여성").length;
+            return (
+              <div className="flex items-center gap-4 text-[11px] font-sans">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                  남 <span className={`font-black ${mCount >= (expM || 0) ? 'text-emerald-600' : ''}`}>{mCount}</span>
+                  <span style={{ color: colors.muted }}>/{expM || '?'}</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-pink-400 inline-block" />
+                  여 <span className={`font-black ${fCount >= (expF || 0) ? 'text-emerald-600' : ''}`}>{fCount}</span>
+                  <span style={{ color: colors.muted }}>/{expF || '?'}</span>
+                </span>
+                <span style={{ color: colors.muted }}>|</span>
+                <span>
+                  총 <span className={`font-black ${(mCount + fCount) >= ((expM || 0) + (expF || 0)) ? 'text-emerald-600' : ''}`} style={{ color: (mCount + fCount) >= ((expM || 0) + (expF || 0)) ? undefined : colors.accent }}>{mCount + fCount}</span>
+                  <span style={{ color: colors.muted }}>/{(expM || 0) + (expF || 0)}명</span>
+                </span>
+              </div>
+            );
+          })()}
+        </div>
         <div className="space-y-3">
           {users.map((user) => (
             <motion.div key={user.id} className="p-5 bg-white flex justify-between items-center shadow-sm" style={{ borderRadius: "2rem", border: `1px solid ${colors.soft}` }}>
               <div className="min-w-0 pr-4">
                 <p className="font-bold text-sm truncate flex items-center gap-2">
-                  {user.real_name} <span className={`text-[10px] px-2 py-0.5 rounded-full border ${user.phone_suffix.toString().endsWith("A") ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
+                  {user.real_name}
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${user.gender === '남성' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-pink-50 border-pink-200 text-pink-600'}`}>
+                    {user.gender === '남성' ? '남' : '여'}
+                  </span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${user.phone_suffix.toString().endsWith("A") ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
                     {user.phone_suffix}
                   </span>
                 </p>
@@ -468,16 +537,25 @@ export default function AdminSettings() {
           <AlertTriangle size={20} />
           <h3 className="text-sm font-sans font-black uppercase tracking-widest italic">Danger Zone</h3>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-red-100 flex justify-between items-center">
-          <div><h4 className="font-bold">Session Reset</h4><p className="text-[11px] text-gray-400 font-sans">모든 데이터 초기화</p></div>
-          <motion.button 
-            onClick={() => setShowResetConfirm(true)} 
-            className="px-6 py-3 bg-red-600 text-white rounded-xl text-[10px] font-sans font-black uppercase shadow-md"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            전체 초기화
-          </motion.button>
+        <div className="bg-white p-6 rounded-2xl border border-red-100">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h4 className="font-bold">Session Reset</h4>
+              <p className="text-[11px] text-gray-400 font-sans">특정 날짜/회차의 데이터만 초기화</p>
+            </div>
+            <motion.button
+              onClick={() => {
+                setResetTargetDate(sessionDate);
+                setResetTargetNum(sessionNum);
+                setShowResetConfirm(true);
+              }}
+              className="px-6 py-3 bg-red-600 text-white rounded-xl text-[10px] font-sans font-black uppercase shadow-md"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              회차 초기화
+            </motion.button>
+          </div>
         </div>
       </motion.section>
 
@@ -486,11 +564,29 @@ export default function AdminSettings() {
         {showResetConfirm && (
           <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="bg-white p-10 rounded-[3rem] w-full max-w-md text-center shadow-2xl">
-              <h3 className="text-2xl font-serif italic font-bold text-red-600 mb-6">회차 초기화</h3>
-              <p className="text-sm text-gray-500 mb-6 font-sans">정말로 모든 데이터를 초기화하시겠습니까?<br/><span className="text-red-500 font-bold">이 작업은 되돌릴 수 없습니다.</span></p>
-              <input type="text" value={resetConfirmText} onChange={(e) => setResetConfirmText(e.target.value)} placeholder="초기화" className="w-full text-center text-lg font-bold border-2 rounded-xl py-3 mb-6 outline-none focus:border-red-500 font-sans" />
-              <button onClick={handleSessionReset} disabled={isResetLoading || resetConfirmText !== "초기화"} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black font-sans shadow-lg disabled:bg-gray-300">초기화 실행</button>
-              <button onClick={() => setShowResetConfirm(false)} className="mt-4 text-gray-400 text-[10px] font-black uppercase hover:underline font-sans">취소</button>
+              <h3 className="text-2xl font-serif italic font-bold text-red-600 mb-4">회차 초기화</h3>
+
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <div className="text-center">
+                  <p className="text-[9px] font-sans font-black uppercase tracking-widest mb-1 text-gray-400">날짜</p>
+                  <input type="date" value={resetTargetDate} onChange={(e) => setResetTargetDate(e.target.value)} className="w-[140px] text-center text-sm font-bold border-2 rounded-xl py-2 outline-none focus:border-red-500 font-sans" />
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] font-sans font-black uppercase tracking-widest mb-1 text-gray-400">회차</p>
+                  <input type="text" value={resetTargetNum} onChange={(e) => setResetTargetNum(e.target.value)} className="w-14 text-center text-lg font-bold border-2 rounded-xl py-2 outline-none focus:border-red-500 font-sans" />
+                </div>
+              </div>
+
+              <div className="bg-red-50 rounded-xl p-4 mb-5 border border-red-100">
+                <p className="text-sm text-red-600 font-bold font-sans mb-1">삭제 대상: {resetTargetDate} {parseInt(resetTargetNum)}회차</p>
+                <p className="text-[11px] text-red-400 font-sans">해당 회차의 유저, 입찰, 피드, 매칭, 리포트가 모두 삭제됩니다.</p>
+              </div>
+
+              <p className="text-sm text-gray-500 mb-3 font-sans">확인을 위해 아래에 세션 ID를 입력하세요.</p>
+              <p className="text-xs text-gray-400 font-mono mb-2">{resetTargetDate}_{resetTargetNum}</p>
+              <input type="text" value={resetConfirmText} onChange={(e) => setResetConfirmText(e.target.value)} placeholder={`${resetTargetDate}_${resetTargetNum}`} className="w-full text-center text-base font-bold border-2 rounded-xl py-3 mb-6 outline-none focus:border-red-500 font-sans font-mono" />
+              <button onClick={handleSessionReset} disabled={isResetLoading || resetConfirmText !== `${resetTargetDate}_${resetTargetNum}`} className="w-full py-5 bg-red-600 text-white rounded-2xl font-black font-sans shadow-lg disabled:bg-gray-300">초기화 실행</button>
+              <button onClick={() => { setShowResetConfirm(false); setResetConfirmText(""); }} className="mt-4 text-gray-400 text-[10px] font-black uppercase hover:underline font-sans">취소</button>
             </motion.div>
           </div>
         )}

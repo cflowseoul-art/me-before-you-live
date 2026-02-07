@@ -4,9 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { getAuth } from "@/lib/utils/auth-storage";
 import {
   Sparkles, Fingerprint, Users, Zap, Brain, Radio, Loader2,
-  Heart, Crown, MessageCircle, TrendingUp
+  Heart, Crown, MessageCircle, TrendingUp, Share2, Check
 } from "lucide-react";
 
 // ─── 가치관 키워드 매핑 ───
@@ -108,12 +109,47 @@ export default function FinalReportPage({ params }: { params: any }) {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isLoadingShare, setIsLoadingShare] = useState(false);
 
   useEffect(() => {
     if (params) {
       params.then((p: any) => setUserId(p.id));
     }
   }, [params]);
+
+  // 스냅샷에서 데이터 로드 시도
+  const loadFromSnapshot = useCallback(async (uid: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/report/${uid}`);
+      const data = await res.json();
+      if (data.success && data.snapshots?.signature?.data) {
+        const snap = data.snapshots.signature.data;
+        if (snap.user) setUser(snap.user);
+        setReportData({
+          topValues: snap.topValues || [],
+          aura: snap.aura || null,
+          totalSpent: snap.totalSpent || 0,
+          rareValues: snap.rareValues || [],
+          feedbacks: snap.feedbacks || [],
+          charmRanking: snap.charmRanking || [],
+          vibeBreakdown: snap.vibeBreakdown || [],
+          selfIdentity: snap.selfIdentity || "",
+          perceivedCharm: snap.perceivedCharm || "",
+          isPardoxFound: snap.isParadoxFound ?? snap.isPardoxFound ?? false,
+          likedUserValues: snap.likedUserValues || [],
+          totalLikes: snap.totalLikes || 0,
+        });
+        // 공유 토큰이 있으면 shareUrl도 설정
+        if (data.snapshots.signature.share_token) {
+          setShareUrl(`${window.location.origin}/share/${data.snapshots.signature.share_token}`);
+        }
+        return true;
+      }
+    } catch {}
+    return false;
+  }, []);
 
   const buildReport = useCallback(async (uid: string) => {
     // 모든 데이터 병렬 fetch
@@ -269,33 +305,59 @@ export default function FinalReportPage({ params }: { params: any }) {
     if (!userId) return;
 
     const init = async () => {
-      const { data } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'is_final_report_open')
-        .single();
+      // API를 통해 phase 확인 (RLS 우회)
+      let settings: any = null;
+      try {
+        const res = await fetch('/api/admin/phase', { cache: 'no-store' });
+        const result = await res.json();
+        if (result.success) settings = result.settings;
+      } catch {}
 
-      if (data?.value !== 'true') {
-        router.replace(`/1on1/report/${userId}`);
-        return;
+      // 이전 회차 유저는 항상 접근 허용
+      const auth = getAuth();
+      const currentSession = settings?.current_session || "";
+      const isPreviousSession = !!(auth?.session_id && currentSession && auth.session_id !== currentSession);
+
+      if (!isPreviousSession) {
+        const isOpen = settings?.is_final_report_open === 'true';
+        const isCompleted = settings?.current_phase === 'completed';
+
+        if (!isOpen && !isCompleted) {
+          router.replace(`/1on1/report/${userId}`);
+          return;
+        }
       }
 
-      await buildReport(userId);
+      // 스냅샷 우선 로드, 없으면 라이브 데이터
+      const snapshotLoaded = await loadFromSnapshot(userId);
+      if (!snapshotLoaded) {
+        await buildReport(userId);
+      }
       setIsLoading(false);
     };
 
     init();
 
-    // Realtime: if admin closes, redirect back
+    // Realtime: if admin closes and not in completed phase, redirect back
     const channel = supabase
       .channel('final_report_access')
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'system_settings',
-      }, (payload) => {
+      }, async (payload) => {
         const row = payload.new as { key: string; value: string };
         if (row.key === 'is_final_report_open' && row.value !== 'true') {
+          // completed phase 또는 이전 회차 유저이면 유지
+          try {
+            const res = await fetch('/api/admin/phase', { cache: 'no-store' });
+            const result = await res.json();
+            if (result.settings?.current_phase === 'completed') return;
+
+            const currentAuth = getAuth();
+            const currentSession = result.settings?.current_session || "";
+            if (currentAuth?.session_id && currentAuth.session_id !== currentSession) return;
+          } catch { return; }
           router.replace(`/1on1/report/${userId}`);
         }
       })
@@ -304,7 +366,7 @@ export default function FinalReportPage({ params }: { params: any }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, router, buildReport]);
+  }, [userId, router, buildReport, loadFromSnapshot]);
 
   if (isLoading) {
     return (
@@ -419,7 +481,8 @@ export default function FinalReportPage({ params }: { params: any }) {
             <span className="text-[9px] font-sans font-black uppercase tracking-[0.3em] text-amber-500/70">SCARCITY</span>
           </div>
           <h3 className="text-lg font-bold text-white mb-1">The Lone Pioneer</h3>
-          <p className="text-sm text-amber-200/40 mb-5">당신만이 선택한 독보적 가치관</p>
+          <p className="text-sm text-amber-200/40 mb-1">절대 포기할 수 없는 내 가치관</p>
+          <p className="text-xs text-amber-200/30 mb-5">&ldquo;나는 어느 위치에?&rdquo;</p>
 
           {d && d.rareValues.length > 0 ? (
             <div className="space-y-3">
@@ -528,6 +591,24 @@ export default function FinalReportPage({ params }: { params: any }) {
               <p className="text-xs text-amber-200/30 text-center">
                 총 {d.feedbacks.length}명의 대화 상대가 평가
               </p>
+
+              {/* 재방문 유도: spark 없이 calm/cold만 있을 때 */}
+              {!d.vibeBreakdown.some(v => v.vibe === "spark") && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8 }}
+                  className="bg-gradient-to-r from-amber-500/10 to-rose-500/10 border border-amber-500/15 rounded-2xl p-5 text-center"
+                >
+                  <p className="text-xs text-amber-200/50 leading-relaxed break-keep mb-2">
+                    불꽃이 없었던 건 매력이 부족해서가 아니에요.<br />
+                    짧은 시간 안에 서로의 결을 온전히 느끼긴 어려우니까요.
+                  </p>
+                  <p className="text-sm font-bold text-amber-300/90 break-keep">
+                    더 좋은 타이밍에 다시 인연을 찾아봐요
+                  </p>
+                </motion.div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-amber-500/40 text-center py-8">아직 수집된 피드백이 없습니다</p>
@@ -576,19 +657,27 @@ export default function FinalReportPage({ params }: { params: any }) {
                 {d.isPardoxFound ? (
                   <>
                     <Sparkles size={20} className="text-amber-400 mx-auto mb-2" />
-                    <p className="text-sm font-bold text-amber-300 mb-1">반전 매력 발견!</p>
+                    <p className="text-sm font-bold text-amber-300 mb-2">반전 매력 발견!</p>
                     <p className="text-xs text-amber-200/60 leading-relaxed break-keep">
-                      &ldquo;{d.selfIdentity}&rdquo;을 추구하는 당신에게서 사람들은 &ldquo;{d.perceivedCharm}&rdquo;을 느꼈습니다.<br />
-                      의외의 갭이 만드는 매력, 그것이 당신의 시그니처입니다.
+                      당신은 경매에서 &ldquo;{d.selfIdentity}&rdquo;에 가장 많은 코인을 걸었습니다.<br />
+                      하지만 대화 상대들은 당신에게서 &ldquo;{d.perceivedCharm}&rdquo;을 가장 강하게 느꼈어요.
+                    </p>
+                    <p className="text-xs text-amber-200/50 leading-relaxed break-keep mt-3">
+                      스스로 의식하지 못한 매력이 대화 속에서 자연스럽게 드러난 거예요.<br />
+                      이 의외의 갭이야말로 사람을 끌어당기는 가장 강력한 무기입니다.
                     </p>
                   </>
                 ) : (
                   <>
-                    <Heart size={20} className="text-white/40 mx-auto mb-2" />
-                    <p className="text-sm font-bold text-white/70 mb-1">일관된 매력</p>
-                    <p className="text-xs text-white/40 leading-relaxed break-keep">
-                      당신이 표현한 가치와 상대방이 느낀 인상이 일치합니다.<br />
-                      진정성 있는 매력, 그 자체가 경쟁력입니다.
+                    <Heart size={20} className="text-amber-400/60 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-white/80 mb-2">흔들리지 않는 매력</p>
+                    <p className="text-xs text-white/50 leading-relaxed break-keep">
+                      당신이 중요하게 여기는 가치 &ldquo;{d.selfIdentity}&rdquo;과<br />
+                      상대방이 실제로 느낀 인상 &ldquo;{d.perceivedCharm}&rdquo;이 같은 결을 가리킵니다.
+                    </p>
+                    <p className="text-xs text-white/40 leading-relaxed break-keep mt-3">
+                      꾸미지 않아도 자연스럽게 전해지는 진정성 —<br />
+                      그게 가장 오래 기억에 남는 매력이에요.
                     </p>
                   </>
                 )}
@@ -670,6 +759,66 @@ export default function FinalReportPage({ params }: { params: any }) {
             </div>
           ) : (
             <p className="text-sm text-amber-500/40 text-center py-8">피드 활동 데이터가 없습니다</p>
+          )}
+        </motion.div>
+
+        {/* Share Button */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8 }}
+          className="pt-4"
+        >
+          <motion.button
+            onClick={async () => {
+              if (shareUrl) {
+                await navigator.clipboard.writeText(shareUrl);
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+                return;
+              }
+              setIsLoadingShare(true);
+              try {
+                const res = await fetch(`/api/report/${userId}`);
+                const data = await res.json();
+                if (data.success && data.snapshots?.signature?.share_token) {
+                  const url = `${window.location.origin}/share/${data.snapshots.signature.share_token}`;
+                  setShareUrl(url);
+                  await navigator.clipboard.writeText(url);
+                  setIsCopied(true);
+                  setTimeout(() => setIsCopied(false), 2000);
+                } else {
+                  alert("공유 링크를 생성할 수 없습니다. 관리자에게 문의하세요.");
+                }
+              } catch {
+                alert("공유 링크 생성 중 오류가 발생했습니다.");
+              } finally {
+                setIsLoadingShare(false);
+              }
+            }}
+            disabled={isLoadingShare}
+            className="w-full py-5 bg-gradient-to-r from-amber-400 to-yellow-500 text-black rounded-[2rem] font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            {isLoadingShare ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : isCopied ? (
+              <>
+                <Check size={18} />
+                링크가 복사되었습니다!
+              </>
+            ) : (
+              <>
+                <Share2 size={18} />
+                {shareUrl ? "공유 링크 복사" : "공유하기"}
+              </>
+            )}
+          </motion.button>
+          {shareUrl && (
+            <p className="text-[10px] text-amber-400/40 text-center mt-2">
+              링크를 통해 누구나 이 리포트를 볼 수 있습니다
+            </p>
           )}
         </motion.div>
 

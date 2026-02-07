@@ -5,9 +5,9 @@ export async function POST(request: Request) {
   try {
     const { phase } = await request.json();
 
-    if (!phase || !['auction', 'feed', 'report'].includes(phase)) {
+    if (!phase || !['auction', 'feed', 'report', 'completed'].includes(phase)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid phase. Must be auction, feed, or report.' },
+        { success: false, error: 'Invalid phase. Must be auction, feed, report, or completed.' },
         { status: 400 }
       );
     }
@@ -16,12 +16,17 @@ export async function POST(request: Request) {
     const isFeedOpen = (phase === 'feed' || phase === 'report') ? 'true' : 'false';
     const isReportOpen = (phase === 'report') ? 'true' : 'false';
 
+    // completed phase 전용 설정
+    const updates: { key: string; value: string }[] = [
+      { key: 'current_phase', value: phase },
+      { key: 'is_feed_open', value: phase === 'completed' ? 'false' : isFeedOpen },
+      { key: 'is_report_open', value: phase === 'completed' ? 'true' : isReportOpen },
+    ];
+
     // Update all settings atomically using service role (bypasses RLS)
-    const results = await Promise.all([
-      supabaseAdmin.from('system_settings').upsert({ key: 'current_phase', value: phase }),
-      supabaseAdmin.from('system_settings').upsert({ key: 'is_feed_open', value: isFeedOpen }),
-      supabaseAdmin.from('system_settings').upsert({ key: 'is_report_open', value: isReportOpen })
-    ]);
+    const results = await Promise.all(
+      updates.map(u => supabaseAdmin.from('system_settings').upsert(u))
+    );
 
     // Check for errors
     const errors = results.filter(r => r.error);
@@ -36,8 +41,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       phase,
-      is_feed_open: isFeedOpen,
-      is_report_open: isReportOpen
+      is_feed_open: phase === 'completed' ? 'false' : isFeedOpen,
+      is_report_open: phase === 'completed' ? 'true' : isReportOpen
     });
   } catch (err: any) {
     console.error('Phase API error:', err);
@@ -53,7 +58,7 @@ export async function GET() {
     const { data, error } = await supabaseAdmin
       .from('system_settings')
       .select('key, value')
-      .in('key', ['current_phase', 'is_feed_open', 'is_report_open', 'current_session', 'active_feedback_round']);
+      .in('key', ['current_phase', 'is_feed_open', 'is_report_open', 'current_session', 'active_feedback_round', 'is_final_report_open', 'session_ratio']);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });

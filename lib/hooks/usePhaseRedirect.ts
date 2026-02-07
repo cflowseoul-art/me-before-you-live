@@ -5,9 +5,9 @@ import { supabase } from "@/lib/supabase";
 
 /**
  * Phase types for the event flow
- * auction -> feed -> report
+ * auction -> feed -> report -> completed
  */
-type Phase = "auction" | "feed" | "report";
+type Phase = "auction" | "feed" | "report" | "completed";
 
 interface SystemSettings {
   current_phase: string;
@@ -55,17 +55,64 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
     }
   }, []);
 
+  // Get user session_id from localStorage
+  const getUserSessionId = useCallback((): string | null => {
+    if (typeof window === "undefined") return null;
+    const stored = localStorage.getItem("auction_user");
+    if (!stored) return null;
+    try {
+      return JSON.parse(stored).session_id || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Redirect based on current phase and page
   const handleRedirect = useCallback((settings: SystemSettings) => {
     const userId = getUserId();
+    const userSessionId = getUserSessionId();
 
     // Strict TEXT type comparison - all values are strings
     const isFeedOpen = String(settings.is_feed_open) === "true";
     const isReportOpen = String(settings.is_report_open) === "true";
+    const currentPhase = String(settings.current_phase || "");
+    const currentSession = String(settings.current_session || "");
 
-    console.log(`🔄 Phase check on [${currentPage}]:`, { isFeedOpen, isReportOpen });
+    console.log(`🔄 Phase check on [${currentPage}]:`, { isFeedOpen, isReportOpen, currentPhase, currentSession, userSessionId });
+
+    // 이전 회차 유저 → 무조건 report-hub (report/completed 페이지는 허용)
+    if (userSessionId && currentSession && userSessionId !== currentSession) {
+      if (currentPage !== "completed" && currentPage !== "report") {
+        console.log("📦 Previous session user → report-hub");
+        window.location.href = "/report-hub";
+        return true;
+      }
+      return false; // report/completed 페이지에서는 그대로 유지
+    }
+
+    // 현재 회차 유저 → 기존 phase 로직
+    // completed phase → report/completed 페이지는 허용, 나머지는 /report-hub로
+    if (currentPhase === "completed" && currentPage !== "completed" && currentPage !== "report") {
+      console.log("🏁 Redirecting to report-hub (completed phase)");
+      window.location.href = "/report-hub";
+      return true;
+    }
 
     switch (currentPage) {
+      case "completed":
+        // completed 페이지에서 phase가 completed가 아니면 적절한 곳으로
+        if (currentPhase !== "completed") {
+          if (isReportOpen && userId) {
+            window.location.href = `/1on1/report/${userId}`;
+          } else if (isFeedOpen) {
+            window.location.href = "/feed";
+          } else {
+            window.location.href = "/auction";
+          }
+          return true;
+        }
+        break;
+
       case "auction":
         // From auction: report takes priority, then feed
         if (isReportOpen && userId) {
@@ -122,7 +169,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
     }
 
     return false;
-  }, [currentPage, getUserId, onFeedOpened, onReportOpened]);
+  }, [currentPage, getUserId, getUserSessionId, onFeedOpened, onReportOpened]);
 
   // Fetch initial settings and check for redirect
   const fetchAndCheckSettings = useCallback(async (retryCount = 0): Promise<SystemSettings | null> => {
@@ -203,6 +250,23 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
 
         // Build partial settings object for redirect check
         const userId = getUserId();
+        const userSid = getUserSessionId();
+
+        // 이전 회차 유저는 Realtime phase 변경에 반응하지 않음
+        // (이미 report-hub에 있거나 report 페이지에 있으므로)
+        if (key === "current_session") {
+          // 세션이 바뀌면 re-fetch
+          fetchAndCheckSettings();
+          return;
+        }
+
+        // Handle current_phase change to completed (report 페이지는 유지)
+        if (key === "current_phase" && stringValue === "completed" && currentPage !== "report") {
+          // 이전 회차 유저가 아닌 경우만 redirect
+          console.log("🏁 Phase changed to completed - redirecting to report-hub");
+          window.location.href = "/report-hub";
+          return;
+        }
 
         // Handle specific key changes with strict TEXT comparison
         if (key === "is_report_open") {
@@ -295,7 +359,7 @@ export function usePhaseRedirect(options: UsePhaseRedirectOptions) {
       console.log(`🔌 [${currentPage}] Unsubscribing from Realtime`);
       supabase.removeChannel(channel);
     };
-  }, [currentPage, fetchAndCheckSettings, getUserId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened, onReportOpened]);
+  }, [currentPage, fetchAndCheckSettings, getUserId, getUserSessionId, onAuctionItemsChange, onFeedLikesChange, onBidsChange, onUsersChange, onFeedOpened, onReportOpened]);
 
   return { fetchAndCheckSettings, getUserId };
 }

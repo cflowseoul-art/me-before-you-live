@@ -95,7 +95,7 @@ export default function FeedDashboard() {
 
           return {
             id: file.id,
-            photo_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w800`,
+            photo_url: `https://lh3.googleusercontent.com/d/${file.id}=w800`,
             gender: parsed.gender || "Unknown",
             target_user_id: String(matchedUser.id),
             like_count: likeCounts[file.id] || 0

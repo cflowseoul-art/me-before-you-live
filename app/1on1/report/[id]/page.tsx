@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { usePhaseRedirect } from "@/lib/hooks/usePhaseRedirect";
+import { getAuth } from "@/lib/utils/auth-storage";
 import {
-  Sparkles, Search, Heart, ShieldCheck, AlertCircle, RefreshCcw,
+  Sparkles, Heart, AlertCircle, RefreshCcw,
   MessageCircle, Users, Link2, Fingerprint, Star, Loader2, Check
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -153,15 +154,6 @@ export default function UserReportPage({ params }: { params: any }) {
 
   const isCalculating = useRef(false);
   const hasFinished = useRef(false);
-  const [loadingStep, setLoadingStep] = useState(0);
-
-  const loadingMessages = [
-    { icon: <Search size={20} />, text: "경매 데이터를 정밀 분석 중..." },
-    { icon: <Heart size={20} />, text: "피드 시그널 교차 검증 중..." },
-    { icon: <Fingerprint size={20} />, text: "당신만의 페르소나 분석 중..." },
-    { icon: <Sparkles size={20} />, text: "솔라 시스템 생성 중..." },
-    { icon: <ShieldCheck size={20} />, text: "맞춤형 리포트 생성 완료..." }
-  ];
 
   // ─── coreFact 생성: 희소성 vs 대중성 비율 판별 (V6.7) ───
   const generateCoreFact = (commonValues: string[], rarestCommonValue: string, rarestCount: number, totalUsers: number): string => {
@@ -189,11 +181,6 @@ export default function UserReportPage({ params }: { params: any }) {
     try {
       setIsLoading(true);
       setError(null);
-
-      for (let i = 0; i < loadingMessages.length; i++) {
-        setLoadingStep(i);
-        await new Promise(resolve => setTimeout(resolve, 600));
-      }
 
       // ─── 데이터 소스 일원화: matches 테이블에서 공식 결과 조회 ───
       const [usersRes, matchesRes, bidsRes, itemsRes, feedLikesRes] = await Promise.all([
@@ -423,12 +410,14 @@ export default function UserReportPage({ params }: { params: any }) {
     if (!userId || !surveyPartner || !selectedVibe || surveySubmitting) return;
     setSurveySubmitting(true);
     try {
+      const auth = getAuth();
       const { error } = await supabase.from('conversation_feedback').insert({
         user_id: userId,
         partner_id: surveyPartner.id,
         round: surveyRound,
         vibe: selectedVibe,
         charms: selectedCharms,
+        session_id: auth?.session_id || null,
       });
 
       if (error) {
@@ -458,7 +447,11 @@ export default function UserReportPage({ params }: { params: any }) {
     });
   }, []);
 
-  if (isLoading) return <LoadingScreen step={loadingStep} messages={loadingMessages} nickname={user?.nickname} />;
+  if (isLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-sky-50/50 to-[#FAF9F6]">
+      <Loader2 className="text-sky-400 animate-spin" size={36} />
+    </div>
+  );
 
   if (error) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-[#FAF9F6]">
@@ -642,7 +635,7 @@ export default function UserReportPage({ params }: { params: any }) {
                     {solarPartners[selectedPlanet.index].partnerLikedMyPhotos.map((photoId) => (
                       <div key={photoId} className="relative aspect-square rounded-xl overflow-hidden border-2 border-white shadow-sm">
                         <img
-                          src={`https://drive.google.com/thumbnail?id=${photoId}&sz=w400`}
+                          src={`https://lh3.googleusercontent.com/d/${photoId}=w400`}
                           alt="liked photo"
                           className="w-full h-full object-cover"
                         />
@@ -1007,77 +1000,6 @@ export default function UserReportPage({ params }: { params: any }) {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-
-
-// 로딩 화면
-function LoadingScreen({ step, messages, nickname }: { step: number; messages: any[]; nickname?: string }) {
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center space-y-12 bg-gradient-to-b from-sky-50 to-[#FAF9F6]">
-      {/* 닉네임 표시 */}
-      {nickname && (
-        <motion.p
-          className="text-sm text-stone-500"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-        >
-          {nickname}님의 리포트를 생성하고 있어요
-        </motion.p>
-      )}
-
-      {/* 로딩 애니메이션 */}
-      <div className="relative w-28 h-28">
-        <motion.div
-          className="absolute inset-0 border-2 border-sky-200 rounded-full"
-          animate={{ scale: [1, 1.2, 1], opacity: [1, 0.3, 1] }}
-          transition={{ repeat: Infinity, duration: 2 }}
-        />
-        <motion.div
-          className="absolute inset-2 border-2 border-sky-300 rounded-full"
-          animate={{ scale: [1.1, 1, 1.1], opacity: [0.5, 1, 0.5] }}
-          transition={{ repeat: Infinity, duration: 2, delay: 0.3 }}
-        />
-        <motion.div
-          className="absolute inset-0 border-t-2 border-sky-400 rounded-full"
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-        />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Sparkles className="text-sky-500" size={32} />
-        </div>
-      </div>
-
-      {/* 단계 표시 */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-center gap-2 text-sky-500">
-          {messages[step]?.icon}
-          <span className="text-[10px] font-sans font-black uppercase tracking-[0.4em]">Phase {step + 1} / {messages.length}</span>
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.h2
-            key={step}
-            className="text-xl font-serif italic text-stone-600"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-          >
-            {messages[step]?.text}
-          </motion.h2>
-        </AnimatePresence>
-      </div>
-
-      {/* 프로그레스 바 */}
-      <div className="w-48 h-1 bg-sky-100 rounded-full overflow-hidden">
-        <motion.div
-          className="h-full bg-sky-400 rounded-full"
-          initial={{ width: 0 }}
-          animate={{ width: `${((step + 1) / messages.length) * 100}%` }}
-          transition={{ duration: 0.5 }}
-        />
-      </div>
     </div>
   );
 }

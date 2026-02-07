@@ -141,13 +141,15 @@ export default function MatchResultsPage() {
   const getRankStyle = (rank: number) => {
     if (rank === 1) return "bg-gradient-to-br from-amber-100 to-yellow-50 border-amber-300 text-amber-800";
     if (rank === 2) return "bg-gradient-to-br from-slate-100 to-gray-50 border-slate-300 text-slate-700";
-    return "bg-gradient-to-br from-orange-50 to-amber-50 border-orange-200 text-orange-700";
+    if (rank === 3) return "bg-gradient-to-br from-orange-50 to-amber-50 border-orange-200 text-orange-700";
+    return "bg-gradient-to-br from-rose-50 to-pink-50 border-rose-200 text-rose-700";
   };
 
   const getRankIcon = (rank: number) => {
     if (rank === 1) return <Crown size={14} className="text-amber-500" />;
     if (rank === 2) return <Star size={14} className="text-slate-400" />;
-    return <Star size={12} className="text-orange-400" />;
+    if (rank === 3) return <Star size={12} className="text-orange-400" />;
+    return <Star size={12} className="text-rose-400" />;
   };
 
   if (isLoading) {
@@ -206,7 +208,7 @@ export default function MatchResultsPage() {
         {/* 테이블 형태 매칭 보드 */}
         <div className="bg-[#0D0D12] border border-amber-900/30 rounded-2xl overflow-hidden">
           {/* 테이블 헤더 */}
-          <div className="grid grid-cols-4 bg-amber-500/10 border-b border-amber-900/30">
+          <div className="grid grid-cols-5 bg-amber-500/10 border-b border-amber-900/30">
             <div className="p-4 text-center">
               <span className="text-xs font-black uppercase tracking-wider text-amber-400">여성</span>
             </div>
@@ -228,6 +230,12 @@ export default function MatchResultsPage() {
                 <span className="text-xs font-black uppercase tracking-wider text-orange-400">3순위</span>
               </div>
             </div>
+            <div className="p-4 text-center border-l border-amber-900/30">
+              <div className="flex items-center justify-center gap-1">
+                <Star size={12} className="text-rose-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-rose-400">4순위</span>
+              </div>
+            </div>
           </div>
 
           {/* 테이블 바디 */}
@@ -242,7 +250,7 @@ export default function MatchResultsPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: idx * 0.05 }}
-                className="grid grid-cols-4 border-b border-amber-900/20 last:border-b-0 hover:bg-amber-500/5 transition-colors"
+                className="grid grid-cols-5 border-b border-amber-900/20 last:border-b-0 hover:bg-amber-500/5 transition-colors"
               >
                 {/* 여성 닉네임 */}
                 <div className="p-4 flex items-center gap-3">
@@ -255,8 +263,8 @@ export default function MatchResultsPage() {
                   </div>
                 </div>
 
-                {/* 1, 2, 3순위 남성 */}
-                {[0, 1, 2].map(rankIdx => {
+                {/* 1, 2, 3, 4순위 남성 */}
+                {[0, 1, 2, 3].map(rankIdx => {
                   const match = group.matches[rankIdx];
                   return (
                     <div

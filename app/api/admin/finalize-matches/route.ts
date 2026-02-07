@@ -238,15 +238,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. 기존 매칭 삭제
-    await supabaseAdmin.from('matches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // 1. 해당 세션의 유저 ID 목록 조회
+    const { data: sessionUsers } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('session_id', sessionId);
+    const sessionUserIds = (sessionUsers || []).map(u => u.id);
 
-    // 2. 필요한 데이터 조회
+    // 2. 해당 세션 유저의 기존 매칭만 삭제 (이전 세션 매칭 보존)
+    if (sessionUserIds.length > 0) {
+      await supabaseAdmin.from('matches').delete().in('user1_id', sessionUserIds);
+    }
+
+    // 3. 해당 세션 데이터만 조회
     const [usersRes, itemsRes, bidsRes, likesRes] = await Promise.all([
-      supabaseAdmin.from('users').select('*'),
+      supabaseAdmin.from('users').select('*').eq('session_id', sessionId),
       supabaseAdmin.from('auction_items').select('*').order('created_at', { ascending: true }),
-      supabaseAdmin.from('bids').select('*'),
-      supabaseAdmin.from('feed_likes').select('*')
+      supabaseAdmin.from('bids').select('*').in('user_id', sessionUserIds.length > 0 ? sessionUserIds : ['none']),
+      supabaseAdmin.from('feed_likes').select('*').in('user_id', sessionUserIds.length > 0 ? sessionUserIds : ['none'])
     ]);
 
     const users = usersRes.data || [];
@@ -502,18 +511,18 @@ export async function POST(request: Request) {
         stablePartnerId = stableMatches.get(user.id);
       }
 
-      // 상위 3명 선정 (안정적 매칭 파트너가 있으면 1순위로 보장)
-      let top3 = userScores.slice(0, 3);
+      // 상위 4명 선정 (안정적 매칭 파트너가 있으면 1순위로 보장)
+      let topN = userScores.slice(0, 4);
 
       if (stablePartnerId) {
         const stableMatch = userScores.find(s => s.to === stablePartnerId);
         if (stableMatch) {
           // 안정적 매칭 파트너를 1순위로 이동
-          top3 = [stableMatch, ...userScores.filter(s => s.to !== stablePartnerId).slice(0, 2)];
+          topN = [stableMatch, ...userScores.filter(s => s.to !== stablePartnerId).slice(0, 3)];
         }
       }
 
-      top3.forEach((match) => {
+      topN.forEach((match) => {
         const normalizedScore = normalizeScore(match.rawScore, minRaw, maxRaw);
 
         // 희소 공통 가치관 계산 (가장 입찰자 수가 적은 공통 항목)

@@ -66,6 +66,12 @@ export default function FeedPage() {
   const fetchFeedData = useCallback(async (session: string) => {
     if (!session || !FOLDER_ID || !API_KEY) return;
 
+    // session = "2026-02-07_01" → date = "2026-02-07", num = "01"
+    const sessionDate = session.includes('_') ? session.split('_')[0] : "";
+    const sessionNum = session.includes('_') ? session.split('_').pop()!.padStart(2, '0') : session.padStart(2, '0');
+
+    console.log(`📂 Feed: session="${session}", date="${sessionDate}", num="${sessionNum}"`);
+
     try {
       setIsLoading(true);
       const [usersRes, likesRes] = await Promise.all([
@@ -73,22 +79,44 @@ export default function FeedPage() {
         supabase.from("feed_likes").select("user_id, target_user_id, photo_id")
       ]);
 
+      // 1단계: 루트 폴더 전체 항목 가져오기
+      let targetFolderId = FOLDER_ID;
+      if (sessionDate) {
+        const rootRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q='${FOLDER_ID}'+in+parents&fields=files(id,name,mimeType)&pageSize=1000&key=${API_KEY}`
+        );
+        const rootData = await rootRes.json();
+        const dateFolder = (rootData.files || []).find((f: any) =>
+          f.mimeType === "application/vnd.google-apps.folder" && f.name === sessionDate
+        );
+        if (dateFolder) {
+          targetFolderId = dateFolder.id;
+          console.log(`✅ 날짜 폴더 발견: ${sessionDate} → ${dateFolder.id}`);
+        } else {
+          console.warn(`⚠️ 날짜 폴더 '${sessionDate}' 없음 → 루트 폴더에서 검색`);
+        }
+      }
+
+      // 2단계: 대상 폴더의 모든 파일 가져오기 → 이미지만 필터
       const driveRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q='${FOLDER_ID}'+in+parents+and+mimeType+contains+'image/'&fields=files(id,name)&key=${API_KEY}`
+        `https://www.googleapis.com/drive/v3/files?q='${targetFolderId}'+in+parents&fields=files(id,name,mimeType)&pageSize=1000&key=${API_KEY}`
       );
       const driveData = await driveRes.json();
+      const imageFiles = (driveData.files || []).filter((f: any) => f.mimeType && f.mimeType.startsWith("image/"));
+      console.log(`📸 이미지 파일 ${imageFiles.length}개 발견`, imageFiles.map((f: any) => f.name));
 
-      const matchedItems = (driveData.files || [])
+      const matchedItems = imageFiles
         .map((file: any) => {
           const info = parseDriveFileName(file.name);
-          if (!info || info.session !== session) return null;
+          if (!info) { console.log(`  ❌ 파싱 실패: ${file.name}`); return null; }
+          if (info.session !== sessionNum) { console.log(`  ⏭️ 세션 불일치: ${file.name} (${info.session} ≠ ${sessionNum})`); return null; }
 
           const matchedUser = usersRes.data?.find(u =>
             String(u.real_name).trim() === info.realName &&
             String(u.phone_suffix).trim() === info.phoneSuffix
           );
 
-          if (!matchedUser) return null;
+          if (!matchedUser) { console.log(`  👤 유저 매칭 실패: ${info.realName} / ${info.phoneSuffix}`); return null; }
 
           return {
             id: file.id,
@@ -96,12 +124,13 @@ export default function FeedPage() {
             user_id: currentUser?.id || "",
             target_user_id: String(matchedUser.id),
             nickname: matchedUser.nickname,
-            gender: info.gender, // "남성" 또는 "여성" 등
-            photo_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w800`,
+            gender: info.gender,
+            photo_url: `https://lh3.googleusercontent.com/d/${file.id}=w800`,
             caption: info.caption
           } as FeedItem;
         }).filter((item: any): item is FeedItem => item !== null);
 
+      console.log(`✅ 최종 매칭된 피드 아이템: ${matchedItems.length}개`);
       setFeedItems(matchedItems);
       setLikes(likesRes.data || []);
 
@@ -129,9 +158,10 @@ export default function FeedPage() {
   usePhaseRedirect({
     currentPage: "feed",
     onSettingsFetched: (settings) => {
-      const session = String(settings.current_session).padStart(2, '0');
-      if (currentSession !== session) {
-        setCurrentSession(session);
+      // 풀 세션 ID 전달 ("2026-02-07_01") → fetchFeedData에서 날짜/번호 파싱
+      const raw = String(settings.current_session || "01");
+      if (currentSession !== raw) {
+        setCurrentSession(raw);
       }
     },
     onReportOpened: handleReportOpened
@@ -255,7 +285,7 @@ export default function FeedPage() {
       if (currentlyLiked) {
         result = await supabase.from("feed_likes").delete().match({ user_id: currentUser.id, photo_id: item.id });
       } else {
-        result = await supabase.from("feed_likes").insert({ user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id });
+        result = await supabase.from("feed_likes").insert({ user_id: currentUser.id, target_user_id: item.target_user_id, photo_id: item.id, session_id: currentUser.session_id || null });
       }
 
       // Supabase 클라이언트는 에러 시 throw하지 않고 { error } 를 반환함

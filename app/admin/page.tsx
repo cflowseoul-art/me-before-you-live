@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { LayoutDashboard, Settings, LogOut, Lock, ImageIcon, Sparkles, Loader2, CheckCircle, AlertCircle, Heart, Eye, Send, XCircle, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Settings, LogOut, Lock, ImageIcon, Sparkles, Loader2, CheckCircle, AlertCircle, Eye, Flag, Users, CheckCircle2 } from "lucide-react";
 import { DESIGN_TOKENS } from "@/lib/design-tokens";
+import { supabase } from "@/lib/supabase";
 
 const { colors, borderRadius, transitions } = DESIGN_TOKENS;
 
@@ -13,61 +14,162 @@ export default function AdminGate() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
 
+  // 세션 설정 (날짜_회차 형식: "2026-02-07_01")
+  const [sessionDate, setSessionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [sessionNum, setSessionNum] = useState("01");
+  const [ratio, setRatio] = useState("5:5");
+  const [isSessionSaving, setIsSessionSaving] = useState(false);
+  const [sessionSaveSuccess, setSessionSaveSuccess] = useState(false);
+  const [maleCount, setMaleCount] = useState(0);
+  const [femaleCount, setFemaleCount] = useState(0);
+
   // 매칭 확정 관련 상태
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeResult, setFinalizeResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // 최종 리포트 발송 상태
-  const [isReportOpen, setIsReportOpen] = useState(false);
-  const [isSendingReport, setIsSendingReport] = useState(false);
-  const [surveyStats, setSurveyStats] = useState<{
-    feedbackCount: number;
-    matchedUserCount: number;
-    activeRound: number;
-    expectedTotal: number;
-    completionRate: number;
-  } | null>(null);
+  // 세션 종료 상태
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [sessionEndResult, setSessionEndResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // 리포트 상태 조회
-  const fetchSurveyStats = useCallback(async () => {
+  // 세션 종료 & 리포트 허브 오픈
+  const handleEndSession = useCallback(async () => {
+    if (isEndingSession) return;
+    const confirmed = confirm(
+      "세션을 종료하시겠습니까?\n\n1. 모든 유저의 리포트 스냅샷이 생성됩니다.\n2. 유저들은 리포트 허브로 이동됩니다.\n3. 스냅샷은 24시간 후 자동 삭제됩니다."
+    );
+    if (!confirmed) return;
+
+    setIsEndingSession(true);
+    setSessionEndResult(null);
+
     try {
-      const res = await fetch('/api/admin/final-report');
+      const snapRes = await fetch('/api/admin/snapshot', { method: 'POST' });
+      const snapData = await snapRes.json();
+      if (!snapData.success) throw new Error(snapData.error || '스냅샷 생성 실패');
+
+      const phaseRes = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: 'completed' }),
+      });
+      const phaseData = await phaseRes.json();
+      if (!phaseData.success) throw new Error(phaseData.error || 'Phase 변경 실패');
+
+      setSessionEndResult({
+        success: true,
+        message: `세션 종료 완료! ${snapData.count}개의 스냅샷이 생성되었습니다.`,
+      });
+    } catch (err: any) {
+      setSessionEndResult({
+        success: false,
+        message: err.message || '세션 종료 중 오류가 발생했습니다.',
+      });
+    } finally {
+      setIsEndingSession(false);
+    }
+  }, [isEndingSession]);
+
+  // 세션 설정 + 유저 수 조회
+  const fetchSessionData = useCallback(async () => {
+    let currentSession = '';
+    try {
+      const res = await fetch('/api/admin/phase');
       const data = await res.json();
-      if (data.success) {
-        setSurveyStats(data.survey);
-        setIsReportOpen(data.is_final_report_open);
+      if (data.success && data.settings) {
+        const raw = data.settings.current_session || '';
+        // "2026-02-07_01" 형식 파싱
+        if (raw.includes('_')) {
+          const [d, n] = raw.split('_');
+          setSessionDate(d);
+          setSessionNum(n);
+        } else {
+          // 레거시 단순 번호 → 오늘 날짜 + 해당 번호
+          setSessionDate(new Date().toISOString().slice(0, 10));
+          setSessionNum(raw || '01');
+        }
+        setRatio(data.settings.session_ratio || '5:5');
+        currentSession = raw;
       }
     } catch (e) {
-      console.error('Failed to fetch survey stats:', e);
+      console.error('Failed to fetch settings:', e);
+    }
+
+    if (currentSession) {
+      const { data: users } = await supabase.from("users").select("gender").eq("session_id", currentSession);
+      if (users) {
+        setMaleCount(users.filter(u => u.gender === "남성").length);
+        setFemaleCount(users.filter(u => u.gender === "여성").length);
+      }
     }
   }, []);
 
-  // 리포트 발송 / 취소
-  const handleReportToggle = useCallback(async (open: boolean) => {
-    if (isSendingReport) return;
-    setIsSendingReport(true);
+  // 합성 세션 ID (날짜_회차)
+  const sessionId = `${sessionDate}_${sessionNum}`;
+
+  // 세션 저장 + phase→auction + 옥션 아이템 리셋 (이전 데이터 보존)
+  const handleSaveSession = useCallback(async () => {
+    const composedSession = `${sessionDate}_${sessionNum}`;
+    const confirmed = confirm(
+      `[${sessionDate} ${sessionNum}회차]로 새 세션을 시작합니다.\n\n` +
+      `1. 이전 세션 리포트 스냅샷 자동 생성\n2. 세션 & 비율 저장\n3. Phase → 옥션 전환\n4. 옥션 아이템 초기화\n\n※ 이전 세션의 입찰/좋아요 데이터는 보존됩니다.\n\n진행하시겠습니까?`
+    );
+    if (!confirmed) return;
+
+    setIsSessionSaving(true);
+    setSessionSaveSuccess(false);
     try {
-      const res = await fetch('/api/admin/final-report', {
+      // 0. 이전 세션 스냅샷 자동 생성 (데이터 보존)
+      try {
+        const snapRes = await fetch('/api/admin/snapshot', { method: 'POST' });
+        const snapData = await snapRes.json();
+        if (snapData.success) {
+          console.log(`📸 이전 세션 스냅샷 생성 완료: ${snapData.count}개`);
+        }
+      } catch (e) {
+        console.warn('스냅샷 생성 실패 (계속 진행):', e);
+      }
+
+      // 1. 세션 + 비율 저장
+      const sessionRes = await fetch('/api/admin/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ open }),
+        body: JSON.stringify({ session: composedSession, ratio }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setIsReportOpen(open);
-      }
-    } catch (e) {
-      console.error('Failed to toggle report:', e);
+      const sessionData = await sessionRes.json();
+      if (!sessionData.success) throw new Error(sessionData.error);
+
+      // 2. Phase → auction
+      const phaseRes = await fetch('/api/admin/phase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: 'auction' }),
+      });
+      const phaseData = await phaseRes.json();
+      if (!phaseData.success) throw new Error(phaseData.error);
+
+      // 3. 옥션 아이템만 리셋 (공유 리소스)
+      // bids, feed_likes, conversation_feedback는 보존 (이전 세션 리포트에 필요)
+      await supabase.from("auction_items").update({
+        status: 'pending',
+        current_bid: 0,
+        highest_bidder_id: null
+      }).neq("id", "00000000-0000-0000-0000-000000000000");
+
+      setSessionSaveSuccess(true);
+      setTimeout(() => setSessionSaveSuccess(false), 3000);
+      await fetchSessionData();
+    } catch (err: any) {
+      alert("저장 중 오류: " + err.message);
     } finally {
-      setIsSendingReport(false);
+      setIsSessionSaving(false);
     }
-  }, [isSendingReport]);
+  }, [sessionDate, sessionNum, ratio, fetchSessionData]);
 
   useEffect(() => {
     const auth = sessionStorage.getItem("admin_auth");
     if (auth === "true") setIsAuthenticated(true);
-    fetchSurveyStats();
-  }, [fetchSurveyStats]);
+    fetchSessionData();
+  }, [fetchSessionData]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +188,6 @@ export default function AdminGate() {
     const confirmed = confirm(
       "최종 매칭을 확정하시겠습니까?\n\n이 작업은 기존 매칭 데이터를 삭제하고 새로운 매칭 결과를 생성합니다."
     );
-
     if (!confirmed) return;
 
     setIsFinalizing(true);
@@ -96,7 +197,7 @@ export default function AdminGate() {
       const res = await fetch('/api/admin/finalize-matches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: '01' })
+        body: JSON.stringify({ sessionId: `${sessionDate}_${sessionNum}` })
       });
 
       const data = await res.json();
@@ -172,6 +273,11 @@ export default function AdminGate() {
     );
   }
 
+  // 비율 파싱
+  const [expectedMale, expectedFemale] = ratio.split(":").map(Number);
+  const totalUsers = maleCount + femaleCount;
+  const expectedTotal = (expectedMale || 0) + (expectedFemale || 0);
+
   const menuItems = [
     {
       label: "Dashboard",
@@ -224,7 +330,97 @@ export default function AdminGate() {
           </motion.p>
         </header>
 
-        <nav className="grid grid-cols-1 gap-4 pt-12">
+        {/* ─── 세션 설정 패널 ─── */}
+        <motion.div
+          className="p-6 border border-white/10 rounded-[2.5rem] bg-[#161616] shadow-xl"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.5 }}
+        >
+          <div className="flex items-center gap-2 mb-3 justify-center">
+            <Users size={16} className="text-amber-400" />
+            <span className="text-[9px] font-sans font-black uppercase tracking-[0.4em] text-amber-400">Session Config</span>
+          </div>
+          <p className="text-center text-[11px] text-white/40 font-sans mb-5">
+            현재: <span className="text-amber-400 font-bold">{sessionDate} {sessionNum}회차</span>
+          </p>
+
+          <div className="flex items-center justify-center gap-3 mb-5 flex-wrap">
+            {/* 날짜 */}
+            <div className="text-center">
+              <p className="text-[9px] font-sans font-black uppercase tracking-widest text-white/40 mb-2">날짜</p>
+              <input
+                type="date"
+                value={sessionDate}
+                onChange={(e) => setSessionDate(e.target.value)}
+                className="w-[140px] text-center text-sm font-black bg-black/50 border-2 border-white/10 rounded-xl py-2.5 text-white outline-none focus:border-amber-500 transition-colors [color-scheme:dark]"
+              />
+            </div>
+
+            {/* 회차 */}
+            <div className="text-center">
+              <p className="text-[9px] font-sans font-black uppercase tracking-widest text-white/40 mb-2">회차</p>
+              <input
+                type="text"
+                value={sessionNum}
+                onChange={(e) => setSessionNum(e.target.value)}
+                placeholder="01"
+                className="w-14 text-center text-2xl font-black bg-black/50 border-2 border-white/10 rounded-xl py-2.5 text-white outline-none focus:border-amber-500 transition-colors"
+              />
+            </div>
+
+            <div className="text-white/20 text-2xl font-thin mt-6">/</div>
+
+            {/* 비율 */}
+            <div className="text-center">
+              <p className="text-[9px] font-sans font-black uppercase tracking-widest text-white/40 mb-2">남 : 여</p>
+              <input
+                type="text"
+                value={ratio}
+                onChange={(e) => setRatio(e.target.value)}
+                placeholder="5:5"
+                className="w-20 text-center text-2xl font-black bg-black/50 border-2 border-white/10 rounded-xl py-2.5 text-white outline-none focus:border-amber-500 transition-colors"
+              />
+            </div>
+
+            {/* 저장 */}
+            <motion.button
+              onClick={handleSaveSession}
+              disabled={isSessionSaving}
+              className="mt-6 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all disabled:cursor-not-allowed text-white"
+              style={{ backgroundColor: sessionSaveSuccess ? '#16a34a' : colors.accent }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              {isSessionSaving ? <Loader2 size={14} className="animate-spin" /> : sessionSaveSuccess ? <CheckCircle2 size={14} /> : '저장'}
+            </motion.button>
+          </div>
+
+          {/* 현재 인원 현황 */}
+          <div className="flex items-center justify-center gap-6 pt-3 border-t border-white/5">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+              <span className="text-xs font-sans">
+                남 <span className={`font-black ${maleCount >= (expectedMale || 0) ? 'text-emerald-400' : 'text-white'}`}>{maleCount}</span>
+                <span className="text-white/30">/{expectedMale || '?'}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-pink-400" />
+              <span className="text-xs font-sans">
+                여 <span className={`font-black ${femaleCount >= (expectedFemale || 0) ? 'text-emerald-400' : 'text-white'}`}>{femaleCount}</span>
+                <span className="text-white/30">/{expectedFemale || '?'}</span>
+              </span>
+            </div>
+            <div className="text-white/20 text-xs">|</div>
+            <span className="text-xs font-sans">
+              총 <span className={`font-black ${totalUsers >= expectedTotal ? 'text-emerald-400' : 'text-amber-400'}`}>{totalUsers}</span>
+              <span className="text-white/30">/{expectedTotal || '?'}명</span>
+            </span>
+          </div>
+        </motion.div>
+
+        <nav className="grid grid-cols-1 gap-4 pt-4">
           {menuItems.map((item, idx) => (
             <motion.button
               key={item.path}
@@ -343,78 +539,67 @@ export default function AdminGate() {
           </motion.button>
         </motion.div>
 
-        {/* 최종 리포트 발송 섹션 */}
+        {/* 세션 종료 & 리포트 허브 오픈 */}
         <motion.div
           className="pt-2"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
+          transition={{ delay: 0.8 }}
         >
-          <div className="p-6 border border-amber-500/30 rounded-[2rem] bg-amber-500/10">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-500/20">
-                <Sparkles size={20} className="text-amber-400" />
-              </div>
-              <div className="text-left">
-                <p className="text-base font-bold text-amber-400">The Final Command</p>
-                <p className="text-[9px] opacity-60 uppercase tracking-widest font-sans mt-0.5 text-amber-300">시그니처 리포트 발송</p>
-              </div>
-            </div>
+          <motion.button
+            onClick={handleEndSession}
+            disabled={isEndingSession}
+            className="w-full p-6 border-2 border-dashed border-violet-500/30 rounded-[2rem] bg-violet-500/10 hover:bg-violet-500/20 hover:border-violet-500/50 transition-all flex items-center justify-center gap-4 group disabled:opacity-50 disabled:cursor-not-allowed"
+            whileHover={!isEndingSession ? { scale: 1.02 } : {}}
+            whileTap={!isEndingSession ? { scale: 0.98 } : {}}
+          >
+            {isEndingSession ? (
+              <>
+                <Loader2 size={24} className="text-violet-400 animate-spin" />
+                <div className="text-left">
+                  <p className="text-lg font-bold text-violet-400">스냅샷 생성 중...</p>
+                  <p className="text-[9px] opacity-60 uppercase tracking-widest font-sans mt-0.5 text-violet-300">Creating Report Snapshots</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <motion.div
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center bg-violet-500/20"
+                  whileHover={{ scale: 1.1, rotate: 15 }}
+                >
+                  <Flag size={24} className="text-violet-400" />
+                </motion.div>
+                <div className="text-left">
+                  <p className="text-lg font-bold text-violet-400">세션 종료 & 리포트 허브 오픈</p>
+                  <p className="text-[9px] opacity-60 uppercase tracking-widest font-sans mt-0.5 text-violet-300">End Session & Open Report Hub</p>
+                </div>
+              </>
+            )}
+          </motion.button>
 
-            {/* 현재 상태 표시 */}
-            <div className="flex items-center gap-2 mb-4">
-              <div className={`w-2 h-2 rounded-full ${isReportOpen ? 'bg-emerald-400 animate-pulse' : 'bg-stone-500'}`} />
-              <span className="text-xs font-sans text-white/60">
-                {isReportOpen ? '발송됨 (유저 열람 가능)' : '미발송'}
-              </span>
-              {surveyStats && (
-                <span className="ml-auto text-xs font-sans text-amber-300/70 flex items-center gap-1">
-                  <MessageCircle size={11} />
-                  {surveyStats.feedbackCount}/{surveyStats.expectedTotal} ({surveyStats.completionRate}%)
+          <AnimatePresence>
+            {sessionEndResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className={`mt-4 p-4 rounded-2xl flex items-center gap-3 ${
+                  sessionEndResult.success
+                    ? 'bg-violet-500/20 border border-violet-500/30'
+                    : 'bg-red-500/20 border border-red-500/30'
+                }`}
+              >
+                {sessionEndResult.success ? (
+                  <CheckCircle size={20} className="text-violet-400" />
+                ) : (
+                  <AlertCircle size={20} className="text-red-400" />
+                )}
+                <span className={`text-sm ${sessionEndResult.success ? 'text-violet-300' : 'text-red-300'}`}>
+                  {sessionEndResult.message}
                 </span>
-              )}
-            </div>
-
-            {/* 발송 취소 / 발송 버튼 */}
-            <div className="flex gap-3">
-              <motion.button
-                onClick={() => handleReportToggle(false)}
-                disabled={isSendingReport || !isReportOpen}
-                whileHover={!isSendingReport && isReportOpen ? { scale: 1.02 } : {}}
-                whileTap={!isSendingReport && isReportOpen ? { scale: 0.98 } : {}}
-                className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-                  !isReportOpen || isSendingReport
-                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
-                    : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
-                }`}
-              >
-                {isSendingReport && !isReportOpen ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <XCircle size={16} />
-                )}
-                발송 취소
-              </motion.button>
-              <motion.button
-                onClick={() => handleReportToggle(true)}
-                disabled={isSendingReport || isReportOpen}
-                whileHover={!isSendingReport && !isReportOpen ? { scale: 1.02 } : {}}
-                whileTap={!isSendingReport && !isReportOpen ? { scale: 0.98 } : {}}
-                className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-                  isReportOpen || isSendingReport
-                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
-                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'
-                }`}
-              >
-                {isSendingReport && isReportOpen ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <Send size={16} />
-                )}
-                발송
-              </motion.button>
-            </div>
-          </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
 
         <motion.button
@@ -422,7 +607,7 @@ export default function AdminGate() {
           className="pt-10 text-[10px] text-white/20 hover:text-white uppercase tracking-[0.3em] font-sans font-bold flex items-center justify-center gap-2 mx-auto transition-colors"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.7 }}
+          transition={{ delay: 0.9 }}
           whileHover={{ scale: 1.05 }}
         >
           <LogOut size={12} /> Exit Admin Session

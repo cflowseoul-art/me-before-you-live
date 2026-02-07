@@ -1,97 +1,117 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const results: Record<string, any> = {};
+    const { sessionId } = await request.json();
 
-    // 순서 중요: 외래 키 제약 조건을 피하기 위해 참조하는 테이블부터 삭제
-
-    // 1. Delete all bids first (references users and auction_items)
-    const { error: bidsError } = await supabaseAdmin
-      .from('bids')
-      .delete()
-      .not('id', 'is', null);
-
-    if (bidsError) console.error('Bids delete error:', bidsError);
-    results.bids = { success: !bidsError, error: bidsError?.message };
-
-    // 2. Delete all feed_likes (references feed_items and possibly users)
-    const { error: likesError } = await supabaseAdmin
-      .from('feed_likes')
-      .delete()
-      .not('id', 'is', null);
-
-    if (likesError) console.error('Feed likes delete error:', likesError);
-    results.feed_likes = { success: !likesError, error: likesError?.message };
-
-    // 3. Delete all feed_items (references users)
-    const { error: feedError } = await supabaseAdmin
-      .from('feed_items')
-      .delete()
-      .not('id', 'is', null);
-
-    if (feedError) console.error('Feed items delete error:', feedError);
-    results.feed_items = { success: !feedError, error: feedError?.message };
-
-    // 4. Delete conversation_feedback (references users)
-    const { error: feedbackError } = await supabaseAdmin
-      .from('conversation_feedback')
-      .delete()
-      .not('id', 'is', null);
-
-    if (feedbackError) console.error('Conversation feedback delete error:', feedbackError);
-    results.conversation_feedback = { success: !feedbackError, error: feedbackError?.message };
-
-    // 5. Reset auction_items BEFORE deleting users (clear highest_bidder_id reference)
-    const { error: auctionError } = await supabaseAdmin
-      .from('auction_items')
-      .update({
-        status: 'pending',
-        current_bid: 0,
-        highest_bidder_id: null
-      })
-      .not('id', 'is', null);
-
-    if (auctionError) console.error('Auction items reset error:', auctionError);
-    results.auction_items = { success: !auctionError, error: auctionError?.message };
-
-    // 6. Delete all users (after clearing all references)
-    const { error: usersError } = await supabaseAdmin
-      .from('users')
-      .delete()
-      .not('id', 'is', null);
-
-    if (usersError) console.error('Users delete error:', usersError);
-    results.users = { success: !usersError, error: usersError?.message };
-
-    // 7. Reset system_settings to initial state
-    const settingsUpdates = [
-      { key: 'current_phase', value: 'auction' },
-      { key: 'is_feed_open', value: 'false' },
-      { key: 'is_report_open', value: 'false' },
-      { key: 'active_feedback_round', value: '0' },
-      { key: 'is_final_report_open', value: 'false' }
-    ];
-
-    let settingsError = null;
-    for (const setting of settingsUpdates) {
-      const { error } = await supabaseAdmin
-        .from('system_settings')
-        .upsert(setting);
-      if (error) settingsError = error;
+    if (!sessionId) {
+      return NextResponse.json(
+        { success: false, error: '초기화할 세션 ID가 필요합니다. (예: 2026-02-07_01)' },
+        { status: 400 }
+      );
     }
 
-    results.system_settings = { success: !settingsError, error: settingsError?.message };
+    // 1. 해당 세션의 유저 ID 목록 조회
+    const { data: sessionUsers, error: usersQueryError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('session_id', sessionId);
 
-    // Check for any errors
+    if (usersQueryError) {
+      return NextResponse.json(
+        { success: false, error: `유저 조회 실패: ${usersQueryError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const userIds = (sessionUsers || []).map(u => u.id);
+    const results: Record<string, any> = {};
+    const deletedCount = userIds.length;
+
+    if (userIds.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: `세션 [${sessionId}]에 해당하는 유저가 없습니다.`,
+        session_id: sessionId,
+        deleted_users: 0,
+        results: {}
+      });
+    }
+
+    // 2. 해당 유저들의 관련 데이터 삭제 (외래 키 순서)
+
+    // report_snapshots
+    const { error: snapshotsErr } = await supabaseAdmin
+      .from('report_snapshots')
+      .delete()
+      .in('user_id', userIds);
+    results.report_snapshots = { success: !snapshotsErr, error: snapshotsErr?.message };
+
+    // matches (user1_id 또는 user2_id)
+    const { error: matches1Err } = await supabaseAdmin
+      .from('matches')
+      .delete()
+      .in('user1_id', userIds);
+    const { error: matches2Err } = await supabaseAdmin
+      .from('matches')
+      .delete()
+      .in('user2_id', userIds);
+    results.matches = { success: !matches1Err && !matches2Err, error: matches1Err?.message || matches2Err?.message };
+
+    // bids
+    const { error: bidsErr } = await supabaseAdmin
+      .from('bids')
+      .delete()
+      .in('user_id', userIds);
+    results.bids = { success: !bidsErr, error: bidsErr?.message };
+
+    // feed_likes
+    const { error: likesErr } = await supabaseAdmin
+      .from('feed_likes')
+      .delete()
+      .in('user_id', userIds);
+    results.feed_likes = { success: !likesErr, error: likesErr?.message };
+
+    // feed_items
+    const { error: feedErr } = await supabaseAdmin
+      .from('feed_items')
+      .delete()
+      .in('user_id', userIds);
+    results.feed_items = { success: !feedErr, error: feedErr?.message };
+
+    // conversation_feedback
+    const { error: fbErr } = await supabaseAdmin
+      .from('conversation_feedback')
+      .delete()
+      .in('user_id', userIds);
+    results.conversation_feedback = { success: !fbErr, error: fbErr?.message };
+
+    // 3. auction_items: 해당 유저가 최고 입찰자인 아이템만 리셋
+    const { error: auctionErr } = await supabaseAdmin
+      .from('auction_items')
+      .update({ status: 'pending', current_bid: 0, highest_bidder_id: null })
+      .in('highest_bidder_id', userIds);
+    results.auction_items = { success: !auctionErr, error: auctionErr?.message };
+
+    // 4. 유저 삭제
+    const { error: usersErr } = await supabaseAdmin
+      .from('users')
+      .delete()
+      .eq('session_id', sessionId);
+    results.users = { success: !usersErr, error: usersErr?.message };
+
     const hasErrors = Object.values(results).some((r: any) => r.error);
 
-    console.log('Reset results:', results);
+    console.log(`Reset session [${sessionId}]:`, results);
 
     return NextResponse.json({
       success: !hasErrors,
-      message: hasErrors ? 'Some operations failed' : 'Session reset complete',
+      message: hasErrors
+        ? `세션 [${sessionId}] 초기화 중 일부 오류 발생`
+        : `세션 [${sessionId}] 초기화 완료 (${deletedCount}명 삭제)`,
+      session_id: sessionId,
+      deleted_users: deletedCount,
       results
     });
 

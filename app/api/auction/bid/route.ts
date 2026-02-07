@@ -38,10 +38,10 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    // 3. 유저 잔액 확인
+    // 3. 유저 잔액 + 세션 확인
     const { data: userData, error: userError } = await supabaseAdmin
       .from('users')
-      .select('balance')
+      .select('balance, session_id')
       .eq('id', userId)
       .single();
 
@@ -87,10 +87,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
     }
 
-    // 6. 입찰 기록 추가
+    // 6. 입찰 기록 추가 (세션 포함)
     await supabaseAdmin
       .from('bids')
-      .insert({ auction_item_id: itemId, user_id: userId, amount: bidAmount });
+      .insert({ auction_item_id: itemId, user_id: userId, amount: bidAmount, session_id: userData.session_id || null });
 
     // 7. 유저 잔액 차감
     const newBalance = userData.balance - amountToDeduct;
