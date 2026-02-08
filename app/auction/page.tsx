@@ -471,7 +471,7 @@ export default function AuctionPage() {
             <motion.div className="bg-white w-full max-w-md p-10 shadow-2xl text-center rounded-[2.5rem] border-t-[10px] border-t-[#7DD3FC]" initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}>
               <h2 className="text-2xl italic tracking-tight mb-8 text-[#1A1A1A]">가치관 경매 안내</h2>
               <div className="space-y-5 text-sm font-light mb-10 leading-loose text-left px-4 font-sans text-gray-400">
-                <p>• 1인당 자산 <span className="font-bold text-[#7DD3FC]">1,000만원</span>이 지급됩니다.</p>
+                <p>• 1인당 자산 <span className="font-bold text-[#7DD3FC]">5,000만원</span>이 지급됩니다.</p>
                 <p>• 현재 최고가보다 <span className="font-bold text-[#7DD3FC]">최소 100만원 이상</span> 높게 입찰해야 합니다.</p>
                 <p>• 입찰 성공 시 자산이 <span className="font-bold underline text-[#1A1A1A]">즉시 차감</span>됩니다.</p>
               </div>
