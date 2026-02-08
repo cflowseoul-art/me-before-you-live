@@ -261,8 +261,18 @@ export default function AdminSettings() {
 
   const handleDeleteUser = async (user: any) => {
     if (!confirm(`[${user.nickname}] 참가자를 삭제하시겠습니까?`)) return;
-    await supabase.from("users").delete().eq("id", user.id);
-    fetchSettings();
+    try {
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id })
+      });
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error);
+      fetchSettings();
+    } catch (err: any) {
+      alert("삭제 중 오류 발생: " + err.message);
+    }
   };
 
   // 특정 세션 초기화
