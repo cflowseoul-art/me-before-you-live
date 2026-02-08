@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { getAuth } from "@/lib/utils/auth-storage";
+import { toPng } from "html-to-image";
 import {
   Sparkles, Fingerprint, Users, Zap, Brain, Radio, Loader2,
-  Heart, Crown, MessageCircle, TrendingUp, Share2, Check
+  Heart, Crown, MessageCircle, TrendingUp, Share2, Check, Download, Link, X
 } from "lucide-react";
 
 // ─── 가치관 키워드 매핑 ───
@@ -112,6 +113,9 @@ export default function FinalReportPage({ params }: { params: any }) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isLoadingShare, setIsLoadingShare] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isSavingImage, setIsSavingImage] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (params) {
@@ -370,8 +374,8 @@ export default function FinalReportPage({ params }: { params: any }) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 className="text-amber-400 animate-spin" size={40} />
+      <div className="min-h-screen bg-[#FAF9F6] flex items-center justify-center">
+        <Loader2 className="text-indigo-400 animate-spin" size={40} />
       </div>
     );
   }
@@ -379,59 +383,83 @@ export default function FinalReportPage({ params }: { params: any }) {
   const d = reportData;
 
   return (
-    <div className="min-h-screen font-serif pb-24 antialiased select-none bg-black text-white">
-      {/* Header */}
+    <div className="min-h-screen font-serif pb-24 antialiased select-none bg-gradient-to-b from-sky-50/50 to-[#FAF9F6]">
+      <div ref={reportRef}>
+      {/* Header — 딥스페이스 */}
       <motion.header
-        className="text-center pt-20 pb-12 px-6"
+        className="text-center pt-16 pb-10 px-6 bg-[#070714] rounded-b-[2.5rem] relative overflow-hidden"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
       >
+        {/* 별 파티클 */}
+        {[
+          { top: "12%", left: "8%", size: 2, delay: 0.3, dur: 3 },
+          { top: "20%", left: "85%", size: 1.5, delay: 0.8, dur: 4 },
+          { top: "35%", left: "15%", size: 1, delay: 1.2, dur: 3.5 },
+          { top: "18%", left: "72%", size: 2.5, delay: 0.5, dur: 2.8 },
+          { top: "55%", left: "90%", size: 1, delay: 1.5, dur: 3.2 },
+          { top: "65%", left: "5%", size: 1.5, delay: 0.2, dur: 4.2 },
+          { top: "45%", left: "25%", size: 1, delay: 1.8, dur: 3.8 },
+          { top: "30%", left: "60%", size: 2, delay: 0.7, dur: 3 },
+          { top: "70%", left: "40%", size: 1.5, delay: 1.0, dur: 2.5 },
+          { top: "50%", left: "78%", size: 1, delay: 1.4, dur: 3.6 },
+          { top: "8%", left: "45%", size: 1.5, delay: 0.4, dur: 4.5 },
+          { top: "75%", left: "68%", size: 2, delay: 0.9, dur: 3.3 },
+        ].map((s, i) => (
+          <motion.div
+            key={i}
+            className="absolute rounded-full bg-white"
+            style={{ top: s.top, left: s.left, width: s.size, height: s.size }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 0.8, 0.2, 0.9, 0] }}
+            transition={{ delay: s.delay, duration: s.dur, repeat: Infinity, ease: "easeInOut" }}
+          />
+        ))}
+
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.2, type: "spring" }}
-          className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-full mb-6 shadow-[0_0_40px_rgba(245,158,11,0.3)]"
+          className="relative inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-full mb-5 shadow-[0_0_40px_rgba(129,140,248,0.3)]"
         >
-          <Sparkles size={28} className="text-white" />
+          <Sparkles size={24} className="text-white" />
         </motion.div>
-        <p className="text-[10px] font-sans font-black tracking-[0.4em] uppercase mb-3 text-amber-400">The Signature</p>
-        <h1 className="text-3xl italic font-bold tracking-tight mb-2 text-white">{user?.nickname}님의 시그니처</h1>
-        <p className="text-sm text-amber-200/50 mt-4 leading-relaxed max-w-md mx-auto">
+        <p className="relative text-[9px] font-sans font-black tracking-[0.4em] uppercase mb-3 text-indigo-300">The Signature</p>
+        <h1 className="relative text-2xl italic font-bold tracking-tight mb-2 text-white">{user?.nickname}님의 시그니처</h1>
+        <p className="relative text-xs text-indigo-200/50 mt-4 leading-relaxed max-w-md mx-auto">
           오늘 이 공간에서 당신이 증명한 가치를<br />가장 아름다운 방식으로 복원했습니다.
         </p>
-        <div className="h-px w-12 mx-auto bg-amber-500/30 mt-6" />
+        <div className="relative h-px w-12 mx-auto bg-indigo-400/30 mt-6" />
       </motion.header>
 
-      <section className="max-w-xl mx-auto px-6 space-y-6">
+      <section className="max-w-xl mx-auto px-5 space-y-5 pt-6">
 
         {/* ═══════ Section 1: The Aura Card ═══════ */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-gradient-to-br from-stone-900 to-stone-950 border border-amber-500/20 rounded-[2rem] p-7 relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-xl border border-white/60 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/30"
         >
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-
           <div className="flex items-center gap-2 mb-3">
-            <Fingerprint size={20} className="text-amber-400" />
-            <span className="text-[9px] font-sans font-black uppercase tracking-[0.3em] text-amber-500/70">IDENTITY</span>
+            <Fingerprint size={16} className="text-indigo-500" />
+            <span className="text-[8px] font-sans font-black uppercase tracking-[0.3em] text-indigo-400">IDENTITY</span>
           </div>
-          <h3 className="text-lg font-bold text-white mb-1">The Aura Card</h3>
-          <p className="text-sm text-amber-200/40 mb-5">당신만의 시그니처 아우라</p>
+          <h3 className="text-base font-bold text-stone-900 mb-1">The Aura Card</h3>
+          <p className="text-xs text-stone-900 mb-4">당신만의 시그니처 아우라</p>
 
           {d?.aura ? (
             <div className="space-y-5">
               {/* Aura Badge */}
-              <div className={`bg-gradient-to-r ${d.aura.gradient} rounded-2xl p-6 text-center`}>
-                <p className="text-[10px] font-sans font-black uppercase tracking-[0.4em] text-white/70 mb-2">Your Aura</p>
-                <h4 className="text-2xl font-black text-white mb-2">{d.aura.aura}</h4>
-                <p className="text-sm text-white/80 leading-relaxed break-keep">{d.aura.description}</p>
+              <div className={`bg-gradient-to-r ${d.aura.gradient} rounded-2xl p-5 text-center shadow-lg`}>
+                <p className="text-[9px] font-sans font-black uppercase tracking-[0.4em] text-white/70 mb-1.5">Your Aura</p>
+                <h4 className="text-xl font-black text-white mb-1.5">{d.aura.aura}</h4>
+                <p className="text-xs text-white/80 leading-relaxed break-keep">{d.aura.description}</p>
               </div>
 
               {/* Top Values */}
               <div className="space-y-2">
-                <p className="text-[10px] font-sans font-black uppercase tracking-widest text-amber-500/50 mb-3">Value Ranking</p>
+                <p className="text-[10px] font-sans font-black uppercase tracking-widest text-stone-900 mb-3">Value Ranking</p>
                 {d.topValues.map((v, i) => {
                   const pct = d.totalSpent > 0 ? Math.round((v.amount / d.totalSpent) * 100) : 0;
                   return (
@@ -442,15 +470,15 @@ export default function FinalReportPage({ params }: { params: any }) {
                       transition={{ delay: 0.5 + i * 0.08 }}
                       className="flex items-center gap-3"
                     >
-                      <span className="text-amber-500/50 text-xs font-bold w-5 text-right">{i + 1}</span>
+                      <span className="text-indigo-300 text-xs font-bold w-5 text-right">{i + 1}</span>
                       <div className="flex-1">
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-bold text-white/90">{v.keyword}</span>
-                          <span className="text-xs text-amber-400/60">{pct}%</span>
+                          <span className="text-xs font-bold text-stone-800">{v.keyword}</span>
+                          <span className="text-[10px] text-stone-900">{pct}%</span>
                         </div>
-                        <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-indigo-100 rounded-full overflow-hidden">
                           <motion.div
-                            className="h-full bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full"
+                            className="h-full bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full"
                             initial={{ width: 0 }}
                             animate={{ width: `${pct}%` }}
                             transition={{ delay: 0.6 + i * 0.08, duration: 0.5 }}
@@ -463,7 +491,7 @@ export default function FinalReportPage({ params }: { params: any }) {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-amber-500/40 text-center py-8">경매 데이터가 없습니다</p>
+            <p className="text-sm text-stone-900 text-center py-8">경매 데이터가 없습니다</p>
           )}
         </motion.div>
 
@@ -472,17 +500,15 @@ export default function FinalReportPage({ params }: { params: any }) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-gradient-to-br from-stone-900 to-stone-950 border border-amber-500/20 rounded-[2rem] p-7 relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-xl border border-white/60 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/30"
         >
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-
           <div className="flex items-center gap-2 mb-3">
-            <Zap size={20} className="text-amber-400" />
-            <span className="text-[9px] font-sans font-black uppercase tracking-[0.3em] text-amber-500/70">SCARCITY</span>
+            <Zap size={16} className="text-indigo-500" />
+            <span className="text-[8px] font-sans font-black uppercase tracking-[0.3em] text-indigo-400">SCARCITY</span>
           </div>
-          <h3 className="text-lg font-bold text-white mb-1">The Lone Pioneer</h3>
-          <p className="text-sm text-amber-200/40 mb-1">절대 포기할 수 없는 내 가치관</p>
-          <p className="text-xs text-amber-200/30 mb-5">&ldquo;나는 어느 위치에?&rdquo;</p>
+          <h3 className="text-base font-bold text-stone-900 mb-1">The Lone Pioneer</h3>
+          <p className="text-xs text-stone-900 mb-0.5">절대 포기할 수 없는 내 가치관</p>
+          <p className="text-[10px] text-stone-800 mb-4">&ldquo;나는 어느 위치에?&rdquo;</p>
 
           {d && d.rareValues.length > 0 ? (
             <div className="space-y-3">
@@ -494,27 +520,27 @@ export default function FinalReportPage({ params }: { params: any }) {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 + i * 0.1 }}
-                    className="bg-white/5 border border-amber-500/10 rounded-2xl p-5"
+                    className="bg-indigo-50/80 border border-indigo-100 rounded-2xl p-4"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        {rv.bidderCount <= 2 && <Crown size={14} className="text-amber-400" />}
-                        <span className="text-base font-bold text-white">{rv.keyword}</span>
+                        {rv.bidderCount <= 2 && <Crown size={12} className="text-indigo-500" />}
+                        <span className="text-sm font-bold text-stone-900">{rv.keyword}</span>
                       </div>
-                      <span className="text-xs font-bold text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-full">
+                      <span className="text-[10px] font-bold text-indigo-500 bg-indigo-100 px-2 py-0.5 rounded-full">
                         {rv.bidderCount}/{rv.totalUsers}명
                       </span>
                     </div>
-                    <p className="text-xs text-white/40 mb-2 break-keep">{rv.fullName}</p>
-                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <p className="text-xs text-stone-900 mb-2 break-keep">{rv.fullName}</p>
+                    <div className="w-full h-1.5 bg-indigo-100 rounded-full overflow-hidden">
                       <motion.div
-                        className={`h-full rounded-full ${rv.bidderCount <= 2 ? 'bg-gradient-to-r from-amber-400 to-yellow-400' : 'bg-amber-500/50'}`}
+                        className={`h-full rounded-full ${rv.bidderCount <= 2 ? 'bg-gradient-to-r from-indigo-400 to-purple-400' : 'bg-indigo-300'}`}
                         initial={{ width: 0 }}
                         animate={{ width: `${ratio}%` }}
                         transition={{ delay: 0.6 + i * 0.1, duration: 0.5 }}
                       />
                     </div>
-                    <p className="text-[10px] text-amber-400/50 mt-2">
+                    <p className="text-[10px] text-indigo-400 mt-2">
                       {rv.bidderCount <= 2
                         ? `전체 ${rv.totalUsers}명 중 오직 ${rv.bidderCount}명만 선택`
                         : `참가자의 ${ratio}%가 선택`
@@ -525,7 +551,7 @@ export default function FinalReportPage({ params }: { params: any }) {
               })}
             </div>
           ) : (
-            <p className="text-sm text-amber-500/40 text-center py-8">데이터를 분석 중입니다</p>
+            <p className="text-sm text-stone-900 text-center py-8">데이터를 분석 중입니다</p>
           )}
         </motion.div>
 
@@ -534,16 +560,14 @@ export default function FinalReportPage({ params }: { params: any }) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="bg-gradient-to-br from-stone-900 to-stone-950 border border-amber-500/20 rounded-[2rem] p-7 relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-xl border border-white/60 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/30"
         >
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-
           <div className="flex items-center gap-2 mb-3">
-            <Radio size={20} className="text-amber-400" />
-            <span className="text-[9px] font-sans font-black uppercase tracking-[0.3em] text-amber-500/70">THE ECHO</span>
+            <Radio size={16} className="text-indigo-500" />
+            <span className="text-[8px] font-sans font-black uppercase tracking-[0.3em] text-indigo-400">THE ECHO</span>
           </div>
-          <h3 className="text-lg font-bold text-white mb-1">The Feedback</h3>
-          <p className="text-sm text-amber-200/40 mb-5">대화 상대가 남긴 당신의 온도</p>
+          <h3 className="text-base font-bold text-stone-900 mb-1">The Feedback</h3>
+          <p className="text-xs text-stone-900 mb-4">대화 상대가 남긴 당신의 온도</p>
 
           {d && d.feedbacks.length > 0 ? (
             <div className="space-y-5">
@@ -553,10 +577,10 @@ export default function FinalReportPage({ params }: { params: any }) {
                   const info = VIBE_INFO[v.vibe];
                   if (!info) return null;
                   return (
-                    <div key={v.vibe} className="flex-1 bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                      <span className="text-xl">{info.emoji}</span>
-                      <p className="text-lg font-black text-white mt-1">{v.count}</p>
-                      <p className="text-[10px] text-white/40 break-keep">{info.label}</p>
+                    <div key={v.vibe} className="flex-1 bg-indigo-50/80 border border-indigo-100 rounded-xl p-3 text-center">
+                      <span className="text-lg">{info.emoji}</span>
+                      <p className="text-base font-black text-stone-900 mt-1">{v.count}</p>
+                      <p className="text-[9px] text-stone-900 break-keep">{info.label}</p>
                     </div>
                   );
                 })}
@@ -565,7 +589,7 @@ export default function FinalReportPage({ params }: { params: any }) {
               {/* Charm Keywords */}
               {d.charmRanking.length > 0 && (
                 <div>
-                  <p className="text-[10px] font-sans font-black uppercase tracking-widest text-amber-500/50 mb-3">매력 키워드</p>
+                  <p className="text-[10px] font-sans font-black uppercase tracking-widest text-stone-900 mb-3">매력 키워드</p>
                   <div className="flex flex-wrap gap-2">
                     {d.charmRanking.map((c, i) => (
                       <motion.div
@@ -573,45 +597,60 @@ export default function FinalReportPage({ params }: { params: any }) {
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ delay: 0.6 + i * 0.08 }}
-                        className={`px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-1.5 ${
+                        className={`px-3 py-2 rounded-full font-bold text-xs flex items-center gap-1.5 ${
                           i === 0
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black'
-                            : 'bg-white/10 text-white/80 border border-white/10'
+                            ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-md shadow-purple-200/50'
+                            : 'bg-stone-100 text-stone-800 border border-stone-200'
                         }`}
                       >
                         {i === 0 && <Crown size={12} />}
                         {c.charm}
-                        <span className={`text-xs ${i === 0 ? 'text-black/50' : 'text-white/40'}`}>x{c.count}</span>
+                        <span className={`text-[10px] ${i === 0 ? 'text-white/60' : 'text-stone-900'}`}>x{c.count}</span>
                       </motion.div>
                     ))}
                   </div>
                 </div>
               )}
 
-              <p className="text-xs text-amber-200/30 text-center">
+              <p className="text-[10px] text-stone-900 text-center">
                 총 {d.feedbacks.length}명의 대화 상대가 평가
               </p>
 
-              {/* 재방문 유도: spark 없이 calm/cold만 있을 때 */}
-              {!d.vibeBreakdown.some(v => v.vibe === "spark") && (
+              {/* spark 있을 때: 연결 유도 */}
+              {d.vibeBreakdown.some(v => v.vibe === "spark") ? (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.8 }}
-                  className="bg-gradient-to-r from-amber-500/10 to-rose-500/10 border border-amber-500/15 rounded-2xl p-5 text-center"
+                  className="bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-100 rounded-2xl p-5 text-center"
                 >
-                  <p className="text-xs text-amber-200/50 leading-relaxed break-keep mb-2">
+                  <p className="text-xs text-stone-800 leading-relaxed break-keep">
+                    이 공간에서 당신은 누군가의<br />심장을 뛰게 했어요.
+                  </p>
+                  <p className="text-[10px] text-rose-500 font-bold mt-2 break-keep">
+                    그분과의 연결을 원하면 주최자에게 알려주세요.
+                  </p>
+                </motion.div>
+              ) : (
+                /* 재방문 유도: spark 없이 calm/cold만 있을 때 */
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8 }}
+                  className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl p-5 text-center"
+                >
+                  <p className="text-[10px] text-stone-900 leading-relaxed break-keep mb-2">
                     불꽃이 없었던 건 매력이 부족해서가 아니에요.<br />
                     짧은 시간 안에 서로의 결을 온전히 느끼긴 어려우니까요.
                   </p>
-                  <p className="text-sm font-bold text-amber-300/90 break-keep">
+                  <p className="text-xs font-bold text-indigo-600 break-keep">
                     더 좋은 타이밍에 다시 인연을 찾아봐요
                   </p>
                 </motion.div>
               )}
             </div>
           ) : (
-            <p className="text-sm text-amber-500/40 text-center py-8">아직 수집된 피드백이 없습니다</p>
+            <p className="text-sm text-stone-900 text-center py-8">아직 수집된 피드백이 없습니다</p>
           )}
         </motion.div>
 
@@ -620,62 +659,60 @@ export default function FinalReportPage({ params }: { params: any }) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="bg-gradient-to-br from-stone-900 to-stone-950 border border-amber-500/20 rounded-[2rem] p-7 relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-xl border border-white/60 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/30"
         >
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-
           <div className="flex items-center gap-2 mb-3">
-            <Brain size={20} className="text-amber-400" />
-            <span className="text-[9px] font-sans font-black uppercase tracking-[0.3em] text-amber-500/70">PARADOX</span>
+            <Brain size={16} className="text-indigo-500" />
+            <span className="text-[8px] font-sans font-black uppercase tracking-[0.3em] text-indigo-400">PARADOX</span>
           </div>
-          <h3 className="text-lg font-bold text-white mb-1">Persona Paradox</h3>
-          <p className="text-sm text-amber-200/40 mb-5">의도와 인상 사이, 반전 매력의 증명</p>
+          <h3 className="text-base font-bold text-stone-900 mb-1">Persona Paradox</h3>
+          <p className="text-xs text-stone-900 mb-4">의도와 인상 사이, 반전 매력의 증명</p>
 
           {d && d.selfIdentity && d.perceivedCharm ? (
-            <div className="space-y-5">
-              {/* VS Card */}
-              <div className="flex items-center gap-3">
+            <div className="space-y-4">
+              {/* VS Card — grid로 양쪽 동일 크기 */}
+              <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-2.5">
                 {/* Self */}
-                <div className="flex-1 bg-gradient-to-br from-violet-500/20 to-purple-500/10 border border-violet-500/20 rounded-2xl p-5 text-center">
-                  <p className="text-[9px] font-sans font-black uppercase tracking-widest text-violet-400/70 mb-2">내가 표현한 나</p>
-                  <p className="text-2xl font-black text-violet-300">{d.selfIdentity}</p>
-                  <p className="text-[10px] text-violet-400/50 mt-1">최고 입찰 가치관</p>
+                <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl p-4 text-center flex flex-col justify-center">
+                  <p className="text-[8px] font-sans font-black uppercase tracking-widest text-indigo-400 mb-1.5">내가 표현한 나</p>
+                  <p className="text-xl font-black text-indigo-700">{d.selfIdentity}</p>
+                  <p className="text-[9px] text-stone-900 mt-1">최고 입찰 가치관</p>
                 </div>
 
-                <div className="text-amber-500/50 font-black text-xs shrink-0">VS</div>
+                <div className="flex items-center text-stone-900 font-black text-[10px] shrink-0 px-0.5">VS</div>
 
                 {/* Perceived */}
-                <div className="flex-1 bg-gradient-to-br from-rose-500/20 to-pink-500/10 border border-rose-500/20 rounded-2xl p-5 text-center">
-                  <p className="text-[9px] font-sans font-black uppercase tracking-widest text-rose-400/70 mb-2">상대가 느낀 나</p>
-                  <p className="text-2xl font-black text-rose-300">{d.perceivedCharm}</p>
-                  <p className="text-[10px] text-rose-400/50 mt-1">가장 많이 받은 매력</p>
+                <div className="bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-100 rounded-2xl p-4 text-center flex flex-col justify-center">
+                  <p className="text-[8px] font-sans font-black uppercase tracking-widest text-rose-400 mb-1.5">상대가 느낀 나</p>
+                  <p className="text-xl font-black text-rose-600">{d.perceivedCharm}</p>
+                  <p className="text-[9px] text-stone-900 mt-1">가장 많이 받은 매력</p>
                 </div>
               </div>
 
               {/* Verdict */}
-              <div className={`rounded-2xl p-5 text-center ${d.isPardoxFound ? 'bg-amber-400/10 border border-amber-400/20' : 'bg-white/5 border border-white/10'}`}>
+              <div className={`rounded-2xl p-4 text-center ${d.isPardoxFound ? 'bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200' : 'bg-stone-50 border border-stone-100'}`}>
                 {d.isPardoxFound ? (
                   <>
-                    <Sparkles size={20} className="text-amber-400 mx-auto mb-2" />
-                    <p className="text-sm font-bold text-amber-300 mb-2">반전 매력 발견!</p>
-                    <p className="text-xs text-amber-200/60 leading-relaxed break-keep">
+                    <Sparkles size={16} className="text-indigo-500 mx-auto mb-2" />
+                    <p className="text-xs font-bold text-indigo-700 mb-2">반전 매력 발견!</p>
+                    <p className="text-[10px] text-stone-900 leading-relaxed break-keep">
                       당신은 경매에서 &ldquo;{d.selfIdentity}&rdquo;에 가장 많은 코인을 걸었습니다.<br />
                       하지만 대화 상대들은 당신에게서 &ldquo;{d.perceivedCharm}&rdquo;을 가장 강하게 느꼈어요.
                     </p>
-                    <p className="text-xs text-amber-200/50 leading-relaxed break-keep mt-3">
+                    <p className="text-[10px] text-stone-900 leading-relaxed break-keep mt-2">
                       스스로 의식하지 못한 매력이 대화 속에서 자연스럽게 드러난 거예요.<br />
                       이 의외의 갭이야말로 사람을 끌어당기는 가장 강력한 무기입니다.
                     </p>
                   </>
                 ) : (
                   <>
-                    <Heart size={20} className="text-amber-400/60 mx-auto mb-2" />
-                    <p className="text-sm font-bold text-white/80 mb-2">흔들리지 않는 매력</p>
-                    <p className="text-xs text-white/50 leading-relaxed break-keep">
+                    <Heart size={16} className="text-stone-900 mx-auto mb-2" />
+                    <p className="text-xs font-bold text-stone-800 mb-2">흔들리지 않는 매력</p>
+                    <p className="text-[10px] text-stone-900 leading-relaxed break-keep">
                       당신이 중요하게 여기는 가치 &ldquo;{d.selfIdentity}&rdquo;과<br />
                       상대방이 실제로 느낀 인상 &ldquo;{d.perceivedCharm}&rdquo;이 같은 결을 가리킵니다.
                     </p>
-                    <p className="text-xs text-white/40 leading-relaxed break-keep mt-3">
+                    <p className="text-[10px] text-stone-900 leading-relaxed break-keep mt-2">
                       꾸미지 않아도 자연스럽게 전해지는 진정성 —<br />
                       그게 가장 오래 기억에 남는 매력이에요.
                     </p>
@@ -684,7 +721,7 @@ export default function FinalReportPage({ params }: { params: any }) {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-amber-500/40 text-center py-8">
+            <p className="text-sm text-stone-900 text-center py-8">
               {!d?.selfIdentity ? "경매 데이터가 필요합니다" : "피드백 데이터가 필요합니다"}
             </p>
           )}
@@ -695,21 +732,19 @@ export default function FinalReportPage({ params }: { params: any }) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.7 }}
-          className="bg-gradient-to-br from-stone-900 to-stone-950 border border-amber-500/20 rounded-[2rem] p-7 relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-xl border border-white/60 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/30"
         >
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-
           <div className="flex items-center gap-2 mb-3">
-            <Users size={20} className="text-amber-400" />
-            <span className="text-[9px] font-sans font-black uppercase tracking-[0.3em] text-amber-500/70">INSTINCT</span>
+            <Users size={16} className="text-indigo-500" />
+            <span className="text-[8px] font-sans font-black uppercase tracking-[0.3em] text-indigo-400">INSTINCT</span>
           </div>
-          <h3 className="text-lg font-bold text-white mb-1">Subconscious Frequency</h3>
-          <p className="text-sm text-amber-200/40 mb-5">당신의 본능이 향한 이상형 분석</p>
+          <h3 className="text-base font-bold text-stone-900 mb-1">Subconscious Frequency</h3>
+          <p className="text-xs text-stone-900 mb-4">당신의 본능이 향한 이상형 분석</p>
 
           {d && d.likedUserValues.length > 0 ? (
             <div className="space-y-5">
-              <p className="text-xs text-white/40 leading-relaxed break-keep">
-                피드에서 하트를 보낸 <span className="text-amber-400 font-bold">{d.totalLikes}번</span>의 선택을 분석한 결과,
+              <p className="text-xs text-stone-900 leading-relaxed break-keep">
+                피드에서 하트를 보낸 <span className="text-indigo-500 font-bold">{d.totalLikes}번</span>의 선택을 분석한 결과,
                 당신의 무의식이 끌린 가치관 패턴입니다.
               </p>
 
@@ -725,18 +760,18 @@ export default function FinalReportPage({ params }: { params: any }) {
                       transition={{ delay: 0.8 + i * 0.08 }}
                       className="flex items-center gap-3"
                     >
-                      <span className={`text-xs font-bold w-5 text-right ${i === 0 ? 'text-amber-400' : 'text-white/30'}`}>{i + 1}</span>
+                      <span className={`text-xs font-bold w-5 text-right ${i === 0 ? 'text-rose-500' : 'text-stone-900'}`}>{i + 1}</span>
                       <div className="flex-1">
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-bold text-white/90 flex items-center gap-1.5">
-                            {i === 0 && <Heart size={12} className="text-rose-400" fill="#fb7185" />}
+                          <span className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                            {i === 0 && <Heart size={11} className="text-rose-400" fill="#fb7185" />}
                             {lv.keyword}
                           </span>
-                          <span className="text-xs text-white/40">{lv.count}명</span>
+                          <span className="text-[10px] text-stone-900">{lv.count}명</span>
                         </div>
-                        <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-rose-100 rounded-full overflow-hidden">
                           <motion.div
-                            className={`h-full rounded-full ${i === 0 ? 'bg-gradient-to-r from-rose-400 to-pink-500' : 'bg-white/20'}`}
+                            className={`h-full rounded-full ${i === 0 ? 'bg-gradient-to-r from-rose-400 to-pink-500' : 'bg-rose-200'}`}
                             initial={{ width: 0 }}
                             animate={{ width: `${pct}%` }}
                             transition={{ delay: 0.9 + i * 0.08, duration: 0.5 }}
@@ -749,98 +784,160 @@ export default function FinalReportPage({ params }: { params: any }) {
               </div>
 
               {d.likedUserValues[0] && (
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
-                  <p className="text-xs text-white/50 break-keep">
-                    당신의 본능은 <span className="text-amber-400 font-bold">&ldquo;{d.likedUserValues[0].keyword}&rdquo;</span>을
+                <div className="bg-rose-50 border border-rose-100 rounded-2xl p-3.5 text-center">
+                  <p className="text-[10px] text-stone-900 break-keep">
+                    당신의 본능은 <span className="text-rose-500 font-bold">&ldquo;{d.likedUserValues[0].keyword}&rdquo;</span>을
                     가진 사람에게 가장 강하게 반응합니다.
                   </p>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-sm text-amber-500/40 text-center py-8">피드 활동 데이터가 없습니다</p>
+            <p className="text-sm text-stone-900 text-center py-8">피드 활동 데이터가 없습니다</p>
           )}
         </motion.div>
+
+        </section>
+        </div>
 
         {/* Share Button */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
-          className="pt-4"
-        >
-          <motion.button
-            onClick={async () => {
-              if (shareUrl) {
-                await navigator.clipboard.writeText(shareUrl);
-                setIsCopied(true);
-                setTimeout(() => setIsCopied(false), 2000);
-                return;
-              }
-              setIsLoadingShare(true);
-              try {
-                // 1) 기존 스냅샷에서 share_token 가져오기
-                const res = await fetch(`/api/report/${userId}`);
-                const data = await res.json();
-                if (data.success && data.snapshots?.signature?.share_token) {
-                  const url = `${window.location.origin}/share/${data.snapshots.signature.share_token}`;
-                  setShareUrl(url);
-                  await navigator.clipboard.writeText(url);
-                  setIsCopied(true);
-                  setTimeout(() => setIsCopied(false), 2000);
-                } else if (reportData) {
-                  // 2) 스냅샷 없으면 현재 데이터로 생성
-                  const postRes = await fetch(`/api/report/${userId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ snapshot_data: reportData, user }),
-                  });
-                  const postData = await postRes.json();
-                  if (postData.success && postData.share_token) {
-                    const url = `${window.location.origin}/share/${postData.share_token}`;
-                    setShareUrl(url);
-                    await navigator.clipboard.writeText(url);
-                    setIsCopied(true);
-                    setTimeout(() => setIsCopied(false), 2000);
-                  } else {
-                    alert("공유 링크를 생성할 수 없습니다.");
-                  }
-                } else {
-                  alert("리포트 데이터가 없습니다.");
-                }
-              } catch {
-                alert("공유 링크 생성 중 오류가 발생했습니다.");
-              } finally {
-                setIsLoadingShare(false);
-              }
-            }}
-            disabled={isLoadingShare}
-            className="w-full py-5 bg-gradient-to-r from-amber-400 to-yellow-500 text-black rounded-[2rem] font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+        <section className="max-w-xl mx-auto px-5 pt-4 pb-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.8 }}
           >
-            {isLoadingShare ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : isCopied ? (
-              <>
-                <Check size={18} />
-                링크가 복사되었습니다!
-              </>
-            ) : (
-              <>
-                <Share2 size={18} />
-                {shareUrl ? "공유 링크 복사" : "공유하기"}
-              </>
-            )}
-          </motion.button>
-          {shareUrl && (
-            <p className="text-[10px] text-amber-400/40 text-center mt-2">
-              링크를 통해 누구나 이 리포트를 볼 수 있습니다
-            </p>
-          )}
-        </motion.div>
+            <motion.button
+              onClick={() => setIsShareOpen(true)}
+              className="w-full py-4 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-[2rem] font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-200/50"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Share2 size={16} />
+              공유하기
+            </motion.button>
+          </motion.div>
+        </section>
 
-      </section>
+        {/* Share Bottom Sheet */}
+        <AnimatePresence>
+          {isShareOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/40 z-50"
+                onClick={() => setIsShareOpen(false)}
+              />
+              <motion.div
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-stone-200 rounded-t-3xl px-6 pt-5 pb-8"
+              >
+                <div className="w-10 h-1 bg-stone-200 rounded-full mx-auto mb-5" />
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-base font-bold text-stone-900">공유하기</h3>
+                  <button onClick={() => setIsShareOpen(false)} className="text-stone-900 p-1">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {/* URL 복사 */}
+                  <motion.button
+                    onClick={async () => {
+                      setIsLoadingShare(true);
+                      try {
+                        const res = await fetch(`/api/report/${userId}`);
+                        const data = await res.json();
+                        let token = data.success && data.snapshots?.signature?.share_token;
+
+                        if (!token && reportData) {
+                          const postRes = await fetch(`/api/report/${userId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ snapshot_data: reportData, user }),
+                          });
+                          const postData = await postRes.json();
+                          if (postData.success) token = postData.share_token;
+                        }
+
+                        if (token) {
+                          const url = `${window.location.origin}/share/${token}`;
+                          setShareUrl(url);
+                          await navigator.clipboard.writeText(url);
+                          setIsCopied(true);
+                          setTimeout(() => { setIsCopied(false); setIsShareOpen(false); }, 1500);
+                        } else {
+                          alert("공유 링크를 생성할 수 없습니다.");
+                        }
+                      } catch {
+                        alert("공유 링크 생성 중 오류가 발생했습니다.");
+                      } finally {
+                        setIsLoadingShare(false);
+                      }
+                    }}
+                    disabled={isLoadingShare}
+                    className="w-full flex items-center gap-4 p-4 bg-stone-50 border border-stone-100 rounded-2xl text-left disabled:opacity-50"
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                      {isLoadingShare ? <Loader2 size={18} className="text-indigo-500 animate-spin" /> :
+                       isCopied ? <Check size={18} className="text-emerald-500" /> :
+                       <Link size={18} className="text-indigo-500" />}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-stone-900">{isCopied ? "링크가 복사되었습니다!" : "URL 복사하기"}</p>
+                      <p className="text-xs text-stone-900 mt-0.5">링크를 통해 누구나 볼 수 있어요</p>
+                    </div>
+                  </motion.button>
+
+                  {/* 이미지 저장 */}
+                  <motion.button
+                    onClick={async () => {
+                      if (!reportRef.current) return;
+                      setIsSavingImage(true);
+                      try {
+                        const dataUrl = await toPng(reportRef.current, {
+                          backgroundColor: "#FAF9F6",
+                          pixelRatio: 2,
+                          filter: (node) => {
+                            if (node instanceof HTMLElement && node.getAttribute?.("aria-hidden") === "true") return false;
+                            return true;
+                          },
+                        });
+                        const link = document.createElement("a");
+                        link.download = `${user?.nickname || "signature"}_report.png`;
+                        link.href = dataUrl;
+                        link.click();
+                        setTimeout(() => setIsShareOpen(false), 500);
+                      } catch {
+                        alert("이미지 저장 중 오류가 발생했습니다.");
+                      } finally {
+                        setIsSavingImage(false);
+                      }
+                    }}
+                    disabled={isSavingImage}
+                    className="w-full flex items-center gap-4 p-4 bg-stone-50 border border-stone-100 rounded-2xl text-left disabled:opacity-50"
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                      {isSavingImage ? <Loader2 size={18} className="text-indigo-500 animate-spin" /> :
+                       <Download size={18} className="text-indigo-500" />}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-stone-900">사진으로 저장하기</p>
+                      <p className="text-xs text-stone-900 mt-0.5">리포트를 이미지로 다운로드</p>
+                    </div>
+                  </motion.button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
     </div>
   );
 }
